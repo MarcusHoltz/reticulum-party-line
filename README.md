@@ -1,422 +1,957 @@
-# TerminalPhone
+<h1 align="center">🧅 Tor Party Line</h1>
 
-Encrypted push-to-talk voice communication over Tor hidden services.
+<p align="center">
+  <strong>Encrypted push-to-talk voice & group party line over Tor hidden services.</strong><br>
+  No accounts. No phone numbers. No servers. End-to-end encrypted voice over Tor.
+</p>
 
-TerminalPhone is a single, self-contained Bash script that provides anonymous, end-to-end encrypted voice and text communication between two or more parties over the Tor network. It operates as a walkie-talkie: you record a voice message, and it is compressed, encrypted, and transmitted to the remote party as a single unit. You can also send encrypted text messages during a call. No server infrastructure, no accounts, no phone numbers. Your Tor hidden service `.onion` address is your identity.
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Installation](#installation)
-  - [Linux](#linux)
-  - [macOS](#macos)
-  - [Termux (Android)](#termux-android)
-- [Quick Start](#quick-start)
-- [Usage](#usage)
-  - [Menu Options](#menu-options)
-  - [In-Call Controls](#in-call-controls)
-  - [CLI Mode](#cli-mode)
-- [How It Works](#how-it-works)
-- [Security Model](#security-model)
-- [Configuration](#configuration)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
 
 ---
 
-## Features
-
-- **Walkie-Talkie Push-to-Talk Mode** -- Record a complete voice message and transmit it on release.
-- **In-Call Encrypted Chat** -- Send and receive encrypted text messages during a call. Press `T` to type a message.
-- **Caller ID** -- Both parties automatically exchange `.onion` addresses on connect. The remote address is displayed in the call header.
-- **Auto-Hangup Detection** -- When one party hangs up, the other is notified immediately and the call ends automatically.
-- **Configurable Cipher** -- Choose from 21 curated ciphers ranked by strength (256-bit → 128-bit). Includes AES, ChaCha20, Camellia, and ARIA families. Weak ciphers (DES, RC4, ECB modes) are excluded.
-- **Live Cipher Negotiation** -- Both parties exchange cipher information on connect. The call header shows both local and remote ciphers with green (match) or red (mismatch) indicators, updated in real time.
-- **Mid-Call Settings** -- Press `S` during a call to access settings. Change your cipher on the fly; the remote party's display updates automatically.
-- **Snowflake Bridge Info** -- When using Snowflake for censorship circumvention, the call page displays the bridge descriptor name, fingerprint, and transport connection status parsed from Tor's logs.
-- **Auto-Listen** -- When enabled, a background listener starts automatically when Tor boots. Incoming calls are detected and accepted from the main menu without needing to manually select "Listen for calls". After a call ends, the listener restarts.
-- **Configurable PTT Key** -- Change the push-to-talk key from the default spacebar to any key via the Settings menu.
-- **Message Stats** -- The call screen displays the encrypted payload size for sent and received messages, updated in-place.
-- **Remote PTT Status** -- The call screen shows a static indicator for the remote party's state: "Idle" (green) or "● Recording" (red). Resets immediately when audio data arrives, before playback begins.
-- **PTT Chime** -- Optional notification sound when the remote party starts recording. Five built-in presets (tone, double, chirp, ding, click) generated with sox, plus the ability to record a custom 2-second chime. Configurable via Settings.
-- **Connecting Animation** -- When calling a remote address, a cycling animation plays until the call interface loads.
-- **Voice Changer** -- Apply voice effects to outgoing audio. Includes 6 presets (deep, high, robot, echo, whisper) and a fully configurable custom mode with pitch shift, overdrive, flanger, echo, highpass filter, and tremolo. Effects are processed using sox before Opus encoding.
-- **Volume PTT (Termux)** -- Experimental mode that lets you double-tap the Volume Down button to toggle recording, even when Termux is in the background. Requires `jq` (installed on demand). Volume is automatically restored after each trigger.
-- **Tor Hidden Service** -- Each instance runs its own Tor hidden service. Your `.onion` address serves as a permanent, routable endpoint. No port forwarding or public IP required.
-- **End-to-End Encryption** -- All audio and text is encrypted using a configurable cipher (default: AES-256-CBC) with PBKDF2 key derivation from a pre-shared secret before entering the Tor network.
-- **Passphrase-Protected Secret** -- The shared secret can be encrypted at rest using a user-chosen passphrase (AES-256-CBC, 100,000 PBKDF2 iterations). Existing plaintext secrets are automatically detected with an offer to migrate.
-- **Low Bandwidth** -- Opus codec at 16kbps, 8kHz mono. A typical 10-second voice message is under 20KB, well within Tor's capacity.
-- **QR Code Sharing** -- Option 3 can display your `.onion` address as a scannable QR code in the terminal. If `qrencode` is not installed, you are prompted to install it. The QR code renders on the alternate screen buffer and is destroyed when dismissed. A note warns that some QR scanners auto-prepend `http://`; this prefix is automatically stripped when dialing.
-- **Opaque Temporary Files** -- All temp files use generic `.tmp` extensions and random hex identifiers. No file type or timing metadata is leaked to the filesystem.
-- **Circuit Hop Display** -- Opt-in display of your Tor circuit path during calls, showing relay names and full country names. Auto-refreshes every 60 seconds. Configurable via Settings → Tor Settings.
-- **Exclude Countries** -- Exclude specific countries from your Tor circuits. Presets for Five Eyes, Nine Eyes, and Fourteen Eyes alliances, or enter custom country codes. Uses `ExcludeNodes` with `StrictNodes` in the torrc.
-- **HMAC Protocol Authentication** -- Optional HMAC-SHA256 signing of all protocol messages (voice, text, control signals) using the shared secret. A random nonce is included per message, and seen nonces are tracked to reject replays. Unsigned, forged, or replayed messages are silently dropped. HMAC state is frozen at call start to prevent mid-call desync. Configurable via Settings → Security.
-- **Overwrite Before Delete** -- Optional toggle in Settings → Security that overwrites every temporary file with random data from `/dev/urandom` before deletion. The file size is read, that many bytes of random data are written over the file with `dd` using `conv=notrunc`, the write is flushed to the storage device with `sync`, and then the file is removed with `rm`. Covers all sensitive runtime files: raw PCM recordings, Opus-encoded audio, encrypted payloads, decrypted inbound audio and chat, voice effect intermediaries, cipher and HMAC key material, nonce logs, session flags, PID files, named pipes, Tor hidden service keys on rotation, and relay session data. For directories, all files inside are overwritten recursively. A built-in test option creates a sample file, shows the original content in plaintext and hex, overwrites it, and displays the overwritten hex so the user can visually confirm the data is destroyed. Off by default — for most users, standard `rm` is perfectly fine. TerminalPhone's temp files are small and short-lived, and the disk space is typically reused quickly by normal system activity. This feature is for users who want an extra layer of protection against forensic recovery. Note: on SSDs and flash storage, wear leveling means the overwrite may land on different physical NAND cells — full-disk encryption is the only reliable defense on flash media. On traditional HDDs, the overwrite replaces data at the same physical location and is effective against all software-based recovery.
-- **Relay Mode (Group Bridge)** -- Run a zero-knowledge relay that bridges N anonymous callers. The relay forwards encrypted audio and chat without decrypting, requires no shared secret or audio hardware. Clients auto-detect relay mode via `RELAY:1` handshake and display live group caller count. One caller leaving does not disconnect others. Operator dashboard shows caller count, uptime, and data throughput.
-- **Single-Hop Tor Mode** -- Optional reduced-latency mode for relay operators. Uses 1 Tor hop instead of 3 for the hidden service, sacrificing server anonymity for lower latency. Ideal for relay operators who don't need to hide their own IP.
-- **Port Configuration** -- Configure listen port and SOCKS port together via Settings → Tor Settings. Enables running multiple instances on the same device with separate Tor processes. Primarily useful for relay operators who also want to join their own group call -- run the relay on one instance, change the SOCKS port on a second instance, and dial in as a caller.
-- **Cross-Platform** -- Runs on standard Linux distributions, macOS, and Android via Termux. Platform-specific audio backends are handled transparently.
-- **No Root Required** -- PTT input uses terminal raw mode. No special permissions or kernel modules needed.
-- **Single Script** -- One Bash file. No build system, no runtime, no framework.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MarcusHoltz/marcusholtz.github.io/refs/heads/main/assets/img/header/header--tor--tor-party-line-terminal-phone.jpg" alt="Tor Party Line - Know the Onion talk with the Onion" width="760">
+</p>
 
 ---
 
-## Installation
 
-### Linux
 
-**Supported distributions:** Debian/Ubuntu (apt), Fedora/RHEL (dnf), Arch (pacman).
+<p align="center">
+  <img src="https://img.shields.io/badge/built%20for-Tor-7d4698" alt="Built on Tor">
+  <img src="https://img.shields.io/badge/Supported%20on-Linux%20%7C%20macOS%20%7C%20Android%20%7C%20Docker-blue" alt="Supported Systems">
+  <img src="https://img.shields.io/badge/license-MIT-green" alt="License: MIT">
+  </p>
 
-``` bash
+<p align="center">
+  <a href="#-quickstart">Quick Start</a> ·
+  <a href="#-what-youll-see">Terminal Screen</a> ·
+  <a href="#-usage">Usage</a> ·
+  <a href="#%EF%B8%8F-troubleshooting">Troubleshooting</a> ·
+  <a href="#-reference">Reference</a> ·
+  <a href="#-faq">FAQ</a>
+</p>
 
-git clone https://gitlab.com/here_forawhile/terminalphone.git
-cd terminalphone
-bash terminalphone.sh
+---
 
-```
+## 👍 Overview
 
-Select option **7** from the menu to install all dependencies automatically. The following packages will be installed:
+Enjoy the experience of a walkie-talkie over [Tor](https://community.torproject.org/onion-services/overview/). 
 
-| Package | Purpose |
-|---|---|
-| `tor` | Onion routing and hidden service |
-| `opus-tools` | Voice compression (Opus codec) |
-| `sox` | Audio processing utilities |
-| `socat` | Bidirectional TCP relay through Tor SOCKS proxy |
-| `openssl` | AES-256-CBC encryption and decryption |
-| `alsa-utils` | Audio recording and playback (`arecord`, `aplay`) |
+Want to talk? Agree on a shared secret — hold a key, speak, release. The other side hears it.
 
-### macOS
 
-``` bash
+---
 
-git clone https://gitlab.com/here_forawhile/terminalphone.git
-cd terminalphone
-bash terminalphone.sh
+## 🚀 Quickstart
 
-```
 
-Select option **7** to install all dependencies automatically. If [Homebrew](https://brew.sh) is not installed, the script will install it first, then install the following packages:
+### Script
 
-| Package | Purpose |
-|---|---|
-| `tor` | Onion routing and hidden service |
-| `opus-tools` | Voice compression (Opus codec) |
-| `sox` | Audio recording and playback (`rec`, `play`) |
-| `socat` | Bidirectional TCP relay through Tor SOCKS proxy |
-| `openssl` | AES-256-CBC encryption and decryption |
-
-**Note:** macOS uses `sox` for both recording (`rec`) and playback (`play`) instead of ALSA. No additional audio packages are needed.
-
-**Apple Silicon (M1/M2/M3+):** If your terminal happens to be running under Rosetta 2 (an `x86_64` process) while Homebrew is installed in the native ARM prefix (`/opt/homebrew`), `brew install` normally fails with `Cannot install under Rosetta 2 in ARM default prefix`. The dependency installer now detects this and automatically reruns Homebrew under `arch -arm64`, so option **7** works regardless of how the script was launched.
-
-### Termux (Android)
-
-TerminalPhone supports Android devices through Termux. Due to Android's sandboxed audio architecture, two additional components are required.
-
-**Step 1: Install Termux**
-
-Install [Termux](https://f-droid.org/en/packages/com.termux/) from F-Droid. Do not use the Play Store version, as it is outdated and no longer receives updates.
-
-**Step 2: Install the Termux:API app**
-
-Install [Termux:API](https://f-droid.org/en/packages/com.termux.api/) from F-Droid. This is a separate Android application (not a Termux package) that provides a bridge between Termux and Android system APIs. TerminalPhone requires it to access the device microphone and media playback.
-
-Without the Termux:API app installed on the device, the `termux-microphone-record` and `termux-media-player` commands will not function, and audio recording and playback will fail silently.
-
-After installing the Termux:API app, grant it microphone permissions when prompted.
-
-**Step 3: Install the Termux:API package inside Termux**
+Run the script. 
 
 ```bash
-pkg install termux-api
+chmod +x partyline.sh && ./partyline.sh
 ```
 
-This installs the command-line utilities that communicate with the Termux:API app.
 
-**Step 4: Run TerminalPhone**
+---
+
+### Docker
+
+Run docker interactivly.
 
 ```bash
-git clone https://gitlab.com/here_forawhile/terminalphone.git
-cd terminalphone
-bash terminalphone.sh
+docker compose run --rm partyline
 ```
 
-Select option **7** to install all remaining dependencies. The installer will run `pkg upgrade` first to resolve any package linking issues, then install `tor`, `opus-tools`, `sox`, `socat`, `openssl-tool`, `ffmpeg`, and `termux-api`.
-
-**Termux-specific dependencies:**
-
-| Package | Purpose |
-|---|---|
-| `termux-api` | CLI bridge to Android microphone and media player |
-| `ffmpeg` | Converts Android's M4A recordings to raw PCM for Opus encoding |
 
 ---
 
-## Quick Start
+### On first run
 
-```
-1. Run:                bash terminalphone.sh
-2. Install deps:       Select option 7
-3. Start Tor:          Select option 8 (wait for 100% bootstrap)
-4. Set shared secret:  Select option 4 (both parties must use the same secret)
-5. Share your .onion address with the other party (option 3)
+1. ⏳ Tor bootstraps — 1–3 min (progress shown on screen)
 
-To receive a call:     Select option 1 (Listen for calls)
-To make a call:        Select option 2 (Call an onion address)
-```
+2. 🧅 Your permanent `.onion` address is generated and displayed
 
-Both parties must have Tor running and the same shared secret configured before initiating a call.
+3. 🔑 Press **1** → set a shared secret (both callers need the same one)
+
+4. 📡 Share your `.onion` + secret → one side listens, the other calls
+
 
 ---
 
-## Usage
+## 📺 What You'll See
 
-### Menu Options
+**Main menu** — after Tor bootstraps and your secret is set:
 
+```text
+  ╔╦╗┌─┐┬─┐  ╔═╗┌─┐┬─┐┌┬┐┬ ┬  ╦  ┬┌┐┌┌─┐
+   ║ │ │├┬┘  ╠═╝├─┤├┬┘ │ └┬┘  ║  ││││├┤
+   ╩ └─┘┴└─  ╩  ┴ ┴┴└─ ┴  ┴   ╩═╝┴┘└┘└─┘
+
+  ───────────────────────────────────────────
+  Encrypted Voice & Group Bridge over Tor
+  ───────────────────────────────────────────
+  v2.0.0 | Push-to-Talk | End-to-End AES-256-CBC
+
+  Address: 7g2xq4zd...onion
+  Secret: ●  Tor: ●  Snowflake: ●  Auto-listen: ●  PTT: [SPACE]
+  ▸ Ready. Press 4 to listen, or 5 to call.
+
+  ═══ SETUP ═══
+  1 │ Set shared secret   (both ends need the same secret)
+  2 │ Audio setup & test  (mic, speakers, diagnostics)
+  3 │ Share my address    (QR code)
+    ─────────────────────────────────────
+  ═══ CALL ═══
+  4 │ Listen for calls
+  5 │ Call an onion address
+  6 │ Host party line     (relay / group bridge)
+    ─────────────────────────────────────
+  ═══ SYSTEM ═══
+  7 │ Settings
+  8 │ Status
+  v │ Vanity .onion address  (custom prefix)
+    ─────────────────────────────────────
+  0 │ Exit
+
+  Select:
 ```
- 1  Listen for calls          Wait for an incoming connection
- 2  Call an onion address     Connect to a remote .onion endpoint
- 3  Show my onion address     Display your .onion address (with optional QR code)
- 4  Set shared secret         Configure the pre-shared encryption key
- 5  Test audio (loopback)     Record and play back audio locally
- 6  Show status               Display Tor, secret, and connection status
- 7  Install dependencies      Install all required packages
- 8  Start Tor                 Start the Tor process and hidden service
- 9  Stop Tor                  Stop the Tor process
-10  Restart Tor               Stop and restart Tor
-11  Rotate onion address      Generate a new .onion address (destroys the old one)
-12  Settings                  Configure Opus quality, PTT chime, Snowflake, auto-listen, PTT key, voice changer, security, Tor settings
-13  Relay mode                Start a zero-knowledge group bridge for N callers
- 0  Quit                      Stop Tor and exit
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+**In a call** — 1-to-1, connected:
+
+```text
+ CALL CONNECTED  7g2xq4zd...onion
+
+  ● Local cipher:  AES-256-CBC
+  ● Remote cipher: AES-256-CBC
+
+  Last sent:  --
+  Last recv:  --
+  Remote:     Idle
+
+   Ready  [SPACE]=Talk [T]=Chat [S]=Set [Q]=Hang up
 ```
 
-### In-Call Controls
+</td>
+<td width="50%" valign="top">
 
-**Full Duplex Mode (WebSockets):**
+**Hosting a party line** — live caller count:
+
+```text
+ CALL CONNECTED
+
+  ● Local cipher:  AES-256-CBC
+  ● Mode:          RELAY (group call)
+
+  Group:      4 callers
+
+   Ready  [SPACE]=Talk [T]=Chat [S]=Set [Q]=Hang up
+```
+
+</td>
+</tr>
+</table>
+
+
+---
+
+## 📖 Usage
+
+Now that you're up and running... let's dive into how you can *really* use this Tor Party Line!
+
+
+---
+
+### Sharing your address + secret
+
+Before a call, both people need your `.onion` address **and** the shared secret. 
+
+```text
+onion: abc123...onion
+secret: your-shared-secret-here
+```
+
+The safest handoff is a one-time link that self-destructs after a single read — the plaintext is never stored:
+
+> Try [yopass.se](https://share.yopass.se) <--- click the link! It is free, open-source, and [self-hostable](https://github.com/jhaals/yopass).
+
+
+---
+
+### Menu reference
 
 | Key | Action |
-|---|---|
-| M | Mute / Unmute microphone. |
-| T | Send an in-call encrypted text message. |
-| Q | Hang up and return to the menu. |
+|-----|--------|
+| 1 | Set shared secret (required before any call is heard) |
+| 2 | Audio setup & test |
+| 3 | Share my address (QR code) |
+| 4 | Listen for a call |
+| 5 | Call an `.onion` address |
+| 6 | Host party line (group bridge) |
+| 7 | Settings (cipher, bitrate, PTT mode, HMAC, Tor, audio, security) |
+| 8 | Status (Tor circuits, onion, config) |
+| 0 | Exit |
 
-**Push-to-Talk Mode (Linux / macOS):**
+- Script-only: `r` restart Tor · `9` install deps · `n` rotate `.onion` · `u` uninstall.
+
+- Docker-only: `v` [vanity address](#vanity-onion-address-docker).
+
+
+---
+
+### In-call keys
 
 | Key | Action |
-|---|---|
-| Hold SPACE | Record voice message. Sends automatically on release. |
-| T | Send an encrypted text message. |
-| S | Open settings mid-call (change cipher, adjust quality). |
-| Q | Hang up and return to the menu. |
+|-----|--------|
+| **Hold SPACE** | Record; sends on release (hold-to-talk) |
+| **T** | Send encrypted text |
+| **S** | Mid-call settings (fix audio, change push-to-talk) |
+| **Q** | Hang up |
 
-**Push-to-Talk Mode (Termux):**
+> **Hold-to-talk:** press SPACE, wait a beat, *then* speak; release to send. 
 
-Android's software keyboard sends key events on release, not on press. TerminalPhone adapts by using toggle mode on Termux.
+> Prefer tap-to-talk? Make that change! → **Settings → 4 (PTT mode) → toggle**: tap to start, tap to stop and send. Android uses toggle automatically (its keyboard fires on key release, not press).
 
-| Key | Action |
-|---|---|
-| Tap SPACE | Start recording. Tap again to stop and send. |
-| T | Send an encrypted text message. |
-| S | Open settings mid-call (change cipher, adjust quality). |
-| Q | Hang up and return to the menu. |
-| Vol Down ×2 | Toggle recording via volume button (requires Volume PTT enabled in settings). |
 
-### CLI Mode
+---
+
+### Script commands & flags
+
+**command** picks the action; **flags** override options for that run.
+
+```text
+Commands: listen | call [ADDR] | relay | status | test | config | install | uninstall | help
+
+  -s, --secret S        Shared secret this run (must match all parties)
+      --save-secret     Persist --secret to disk (chmod 600)
+  -a, --address ADDR    .onion to call  (alias --onion)
+  -p, --port N          Listen / hidden-service port                [7777]
+      --socks-port N    Tor SOCKS port                 [9052 Script / 9050 Docker]
+  -c, --cipher NAME     OpenSSL cipher (aes-256-cbc, chacha20…)    [aes-256-cbc]
+  -b, --bitrate N       Opus bitrate kbps                           [16]
+      --exclude-nodes L Tor ExcludeNodes (e.g. '{US},{GB}')
+      --hmac            HMAC-sign protocol messages    (--no-hmac)        [on]
+      --snowflake       Use Snowflake bridge           (--no-snowflake)   [off]
+      --single-hop      Single-hop HS (faster, less anon) (--no-single-hop) [off]
+      --auto-listen     Auto-listen after Tor starts    (--no-auto-listen) [off]
+      --show-circuit    Show circuit hops in header     (--no-show-circuit)[off]
+      --save            Persist all supplied options to config
+  -h, --help   -V, --version
+```
+
+
+---
+
+## 🔨 Troubleshooting
+
+Say it isnt so, this script didnt work instantly? Woe is not without effort:
+
+
+---
+
+### Sharing address + secret
+
+Getting your onion address and secret to someone, securly. Hand them a one-time link that self-destructs after one read. Both sides set the same secret (menu → **1**), then one listens, one calls.
+
+> Visit: **[yopass.se](https://share.yopass.se)** → paste `onion:` + `secret:`, set a 1-hour expiry, send the link. 
+
+
+---
+
+### No sound / silence on calls
+
+Almost always the wrong input/output device. A device can "open" in a test and still be silent — only your ears decide.
+
+1. **Find a working speaker:** Settings → 7 → Audio devices → **4 (Test all outputs)** plays white noise to each device in turn. On PipeWire/PulseAudio, pick *"System default output (server)"* first — it avoids the raw-ALSA device-busy trap where disconnected ports "play" silently. Enter the number you **actually hear**; that exact route is what live calls use.
+
+2. **Verify:** Test audio pipeline — if you hear your voice, calls work.
+
+3. **Still stuck:** Settings → 7 → **6 (Audio diagnostics)** shows the backend, the live call route, and any muted/0% sink (the common "command succeeds, nothing comes out" cause).
+
+4. Or set the correct mic/speakers as the system default in your desktop sound settings (GNOME, KDE, `pavucontrol`). With nothing pinned, the app follows the system default. Multi-card box? `pactl info | grep Default` shows what's selected — mic and speakers can be on different cards.
+
+
+---
+
+### Remote hears nothing / red ● in call header
+
+**Cipher mismatch** — decryption fails silently when both sides differ. Agree on the same cipher in Settings, or change mid-call via **S → Settings**.
+
+
+---
+
+### Tor stuck / address never appears
+
+First bootstrap takes 1–3 min. Script: press **r** to restart Tor. Tor blocked on your network? Enable [Snowflake](https://snowflake.torproject.org/) in Settings → Tor (Script only). Docker: exit (**0**) and re-run `docker compose run --rm partyline`.
+
+
+---
+
+### Android call drops with the screen off
+
+The app holds a partial wakelock via `termux-wake-lock` ([Termux:API](https://github.com/termux/termux-api)). Without it, Android deep-sleeps the process mid-call.
+
+1. Install **Termux:API** from [F-Droid](https://f-droid.org/en/packages/com.termux.api/) (not the Play Store), then `pkg install termux-api` — without it the mic won't work either.
+
+2. Android Settings → Apps → Termux → Battery → **Unrestricted**.
+
+3. Genuine drops auto-reconnect silently up to `RECONNECT_ATTEMPTS` times.
+
+
+---
+
+
+## I hear a brief pause mid-message on Android
+
+Nothing is wrong. Messages longer than `PTT_CHUNK_SECONDS` (default 10 s) are split into chunks and played back sequentially. On Android/Termux there is a ~300 ms gap between chunks while the media player loads to the next file — the audio resumes exactly where it left off.
+
+
+---
+
+### Running automated headless deployments
+
+Skip the menu. Pass flags directly. No interactive prompts. Works on Docker and Script.
+
+
+#### Run-once commands, removed when done
+
+`docker compose run --rm` runs, exits when complete, as if running the script.
 
 ```bash
-bash terminalphone.sh install       # Install dependencies
-bash terminalphone.sh test          # Audio loopback test
-bash terminalphone.sh status        # Show status
-bash terminalphone.sh listen        # Listen for incoming calls
-bash terminalphone.sh call ADDRESS  # Call a .onion address
-bash terminalphone.sh relay         # Start relay mode (group bridge)
+# Place a call
+docker compose run --rm partyline call abcdef0123456789.onion --secret 'shhhsecretshere'
+
+# 1-to-1: listen for an incoming call
+docker compose run --rm partyline listen --secret 'shhhsecretshere'
+
+# Diagnostics
+docker compose run --rm partyline test
+docker compose run --rm partyline status
 ```
+
+
+#### Save some settings, then run without those flags
+
+```bash
+docker compose run --rm partyline config --secret 'shhhsecretshere' --port 7777 --hmac --save
+docker compose run --rm partyline call abcdef0123456789.onion
+```
+> an .onion address is required per call; everything else above is saved and remembered
+
+
+#### Compose up starts group bridge on auto-restart
+
+By default, if you bring up this project it starts the relay, an always-on group bridge: callers dial your `.onion` and are bridged together... in a PARTY LINE!
+
+`docker compose up -d` starts the group bridge directly — when no command is given and there is no interactive terminal attached (i.e. detached mode), the container auto-selects relay mode:
+
+```bash
+docker compose up -d       # start relay in background (Tor bootstraps, group bridge opens)
+docker compose logs -f     # watch live activity
+docker compose restart     # reload without losing your .onion address
+docker compose down        # stop everything
+```
+
+> Grab a [vanity address](#vanity-onion-address-docker) before going live so your `.onion` is slightly memorable.
+
+
+#### Running this script detached, no auto-restart
+
+You can apply any of the script's commands:
+
+```bash
+docker compose run -d partyline relay
+```
+
+To reattach to the running container's interactive session:
+
+```bash
+docker attach <container_id_or_name>
+```
+
+- Press **Ctrl+P then Ctrl+Q** to detach again without stopping the container.
+- **Ctrl+C** will terminate the process inside the container — use with caution.
+
+> Script usage is identical: `./partyline.sh call <onion> --secret 'shhhsecretshere'`. For more info, see [Configuration & defaults](#config-and-defaults)
+
 
 ---
 
-## How It Works
+### Anti-flood limits
 
-TerminalPhone uses a record-then-send model. When you activate PTT, the microphone records continuously until you release. The complete recording is then processed through the following pipeline:
+Tune any of these in the [Reference](#-reference) tables.
 
+- Push-to-talk **auto-stops at `MAX_PTT_SECONDS`** (default 120 s) even if you keep holding — release and press again to continue. A clip over the size cap shows **`too long`** instead of sending. 
+
+- Text messages are length-capped, and on a group call the relay **rate-limits each caller** (default 15 messages), so holding a key down or pasting a wall of text won't flood or mute the room — the excess is silently dropped. 
+
+
+---
+
+
+### Environment variable use
+
+Environment variable take a precedence order: 
+
+1. built-in defaults
+
+2. .env
+
+3. saved config
+
+4. CLI flags
+
+
+---
+
+## 📚 Reference
+
+<details>
+<summary><strong>Audio setup (all platforms)</strong></summary>
+
+<br>
+
+| Platform | Backend | Device selection |
+|----------|---------|-----------------|
+| Linux Script | PipeWire → PulseAudio → ALSA (auto) | Desktop sound settings, in-app picker, or env vars |
+| Linux Docker | ALSA direct | In-app picker or env vars |
+| Android/Termux | termux-microphone-record + ffplay | OS routes automatically |
+| macOS | ffmpeg (AVFoundation) | System Settings → Sound |
+
+**Linux — in-app picker:** Settings → 7 → Audio devices. Lists devices by friendly name and offers *System default* (routes through your sound server to whatever you selected in your desktop settings — right for almost everyone). `← current` marks the active device; `[HDMI]` flags display-audio outputs.
+
+**Backend order:** sound server (`parecord`/`paplay`, works with both [PulseAudio](https://www.freedesktop.org/wiki/Software/PulseAudio/) and [PipeWire](https://pipewire.org/)) → [ALSA](https://www.alsa-project.org/) direct. The app records a brief probe first; if the server corks the stream (Docker, headless, no socket), detection falls through to ALSA.
+
+**Why the sound server wins on multi-card desktops:** ALSA opens capture devices in card order and picks the first that *opens* — but every card opens even with no mic attached, so it often picks the wrong one. The sound server already knows your selected default.
+
+**Verify the full pipeline:**
+```bash
+docker compose run --rm partyline test   # Docker
+./partyline.sh test                       # Script
 ```
+Records 3 s, Opus-encodes, encrypts, decrypts, plays back. Hear yourself = the whole pipeline works. Output shows the backend used (e.g. `Playing back via pw-play`). Probing order: `pw-play` → `paplay` → `aplay -D default`/`pulse` → raw `plughw` (raw last — when PipeWire/PulseAudio owns the card, direct `plughw` hits `EBUSY`).
+
+No sound-server tools at all?
+```bash
+sudo apt install pulseaudio-utils pipewire-bin   # Debian/Ubuntu
+sudo dnf install pulseaudio-utils                # Fedora
+```
+Or menu → 9 (install dependencies).
+
+**Forcing a specific ALSA device** (headless / bare-ALSA / Docker) — setting these env vars forces ALSA-direct and bypasses the sound server:
+```bash
+ALSA_DEVICE=plughw:1,0 ./partyline.sh    # Script, inline
+# Docker: set in .env (copy .env.example first)
+ALSA_DEVICE=plughw:0,0        # mic
+ALSA_PLAY_DEVICE=plughw:0,0   # speakers
+```
+Find the numbers on the **host** (not inside Docker): `arecord -l` (mics), `aplay -l` (speakers). Format is `plughw:CARD,DEVICE`. Use `plughw:`, not `hw:` — the plug layer converts sample rates automatically; `hw` requires an exact match and fails otherwise. The in-app picker overrides `.env`.
+
+**Android / Termux:** the OS controls routing — no per-device selection. Needs Termux + **Termux:API from F-Droid**, then `pkg install termux-api`. Bluetooth: pair in Android settings, enable the **Headset / HFP** profile for a mic (A2DP is music-only). Audio stuck on phone speaker → toggle Bluetooth off/on.
+
+**macOS:** select input/output in **System Settings → Sound** before launch. [`ffmpeg`](https://ffmpeg.org/) routes through [AVFoundation](https://developer.apple.com/av-foundation/)/CoreAudio automatically. Apple Silicon under Rosetta: [Homebrew](https://brew.sh/) runs with `arch -arm64` transparently — no action needed.
+
+</details>
+
+
+
+
+<details id="config-and-defaults">
+<summary><strong>Configuration & defaults</strong></summary>
+
+<br>
+
+Settings precedence (lowest → highest): **built-in defaults → `.env`** (Docker only) **→ saved config** (`data/.partyline/config`) **→ CLI flags**.
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `LISTEN_PORT` | `7777` | TCP port for incoming connections |
+| `TOR_SOCKS_PORT` | `9052` Script / `9050` Docker | [Tor SOCKS proxy](https://2019.www.torproject.org/docs/tor-manual.html.en) port |
+| `SNOWFLAKE_ENABLED` | `0` | Use Snowflake censorship-circumvention bridge (Script only; `0`/`1`) |
+| `SINGLE_HOP` | `0` | Single-hop hidden service — faster but sacrifices server anonymity (`0`/`1`) |
+| `EXCLUDE_NODES` | *(none)* | Tor ExcludeNodes: comma-separated country codes, e.g. `{US},{GB}` |
+| `SHOW_CIRCUIT` | `0` | Show Tor circuit hop countries in the call header (`0`/`1`) |
+| `OPUS_BITRATE` | `16` | Opus encoding bitrate (kbps) |
+| `CIPHER` | `aes-256-cbc` | Encryption cipher |
+| `AUTO_LISTEN` | `0` | Start listening automatically when Tor boots |
+| `PTT_KEY` | `SPACE` | Push-to-talk key |
+| `PTT_TOGGLE_MODE` | `0` | `0` = hold-to-talk, `1` = tap-start/tap-stop toggle |
+| `HMAC_AUTH` | `1` | HMAC-sign all protocol messages (both sides must match) |
+| `OVERWRITE_DELETE` | `0` | Overwrite temp files with random bytes before deletion |
+| `SAMPLE_RATE` | `8000` | Audio sample rate (Hz) |
+| `ALSA_DEVICE` | *(empty)* | Force a specific ALSA capture device (e.g. `plughw:1,0`); bypasses sound server |
+| `ALSA_PLAY_DEVICE` | *(empty)* | Force a specific ALSA playback device (e.g. `plughw:0,0`); bypasses sound server |
+| `PULSE_SOURCE` | *(empty)* | PipeWire/PulseAudio capture device name; empty = system default |
+| `PULSE_SINK` | *(empty)* | PipeWire/PulseAudio playback device name; empty = system default |
+| `RELAY_IDLE_TIMEOUT` | `240` | Drop a caller after this many seconds of total silence |
+| `HEARTBEAT_INTERVAL` | `20` | Keepalive PING interval; keep well below `RELAY_IDLE_TIMEOUT` |
+| `CLIENT_TIMEOUT` | `180` | No inbound traffic this long = dropped; tear down + reconnect |
+| `RECONNECT_ATTEMPTS` | `3` | Silent re-dials after a drop; `0` disables auto-reconnect |
+| `MAX_PTT_SECONDS` | `120` | Hard cap on one push-to-talk transmission; recorder self-stops at the limit |
+| `MAX_AUDIO_B64` | `524288` | Sender skips an AUDIO blob over this (base64 bytes); backstop to `MAX_PTT_SECONDS` |
+| `MAX_LINE_BYTES` | `524288` | Relay drops any inbound line larger than this before forwarding |
+| `MAX_MSG_B64` | `65536` | Receiving client drops a text MSG whose base64 exceeds this |
+| `RELAY_MAX_MSG_PER_SEC` | `15` | Relay drops a caller's messages beyond this rate (anti-flood; one caller can't mute the rest) |
+| `RELAY_MAX_INFLIGHT` | `64` | Caps concurrent background forwards per caller (fork-bomb guard) |
+| `RELAY_WRITE_TIMEOUT` | `30` | Seconds before the relay abandons a write to a stalled client |
+| `DECRYPT_TIMEOUT` | `10` | Seconds before killing a stalled `openssl` decrypt process |
+| `PTT_CHUNK_SECONDS` | `10` | Split PTT audio into chunks of this many seconds before encoding and sending |
+
+`.env` is read **only by Docker Compose** (the script ignores it). Copy `.env.example` and edit. Every flag has a matching `.env` variable; booleans are `0`/`1`:
+
+| CLI flag | `.env` var | Default |
+|----------|-----------|---------|
+| `-p, --port` | `LISTEN_PORT` | `7777` |
+| `--socks-port` | `TOR_SOCKS_PORT` | `9052` |
+| `-b, --bitrate` | `OPUS_BITRATE` | `16` |
+| `-c, --cipher` | `CIPHER` | `aes-256-cbc` |
+| `--hmac` | `HMAC_AUTH` | `1` |
+| `--snowflake` | `SNOWFLAKE_ENABLED` | `0` |
+| `--single-hop` | `SINGLE_HOP` | `0` |
+| `--auto-listen` | `AUTO_LISTEN` | `0` |
+| `--show-circuit` | `SHOW_CIRCUIT` | `0` |
+| `--exclude-nodes` | `EXCLUDE_NODES` | *(none)* |
+| `-s, --secret` | *(use Docker secret — see below)* | — |
+
+Audio (`ALSA_DEVICE`, `ALSA_PLAY_DEVICE`, `PULSE_SOURCE`, `PULSE_SINK`, `XDG_RUNTIME_DIR`), keep-alive tuning (`RELAY_IDLE_TIMEOUT`, `HEARTBEAT_INTERVAL`, `CLIENT_TIMEOUT`, `RECONNECT_ATTEMPTS`), and the anti-flood limits (`MAX_PTT_SECONDS`, `MAX_AUDIO_B64`, `MAX_LINE_BYTES`, `MAX_MSG_B64`, `RELAY_MAX_MSG_PER_SEC`, `RELAY_MAX_INFLIGHT`, `RELAY_WRITE_TIMEOUT`) are also `.env`-settable — see `.env.example`.
+
+</details>
+
+
+
+
+<details id="shared-secret-docker">
+<summary><strong>Shared secret (Docker)</strong></summary>
+
+<br>
+
+The shared secret is deliberately **not** an environment variable — env values leak via `docker inspect`, `/proc/<pid>/environ`, and logs. Instead the `secrets/` directory is **bind-mounted read-only** into the container and the app reads the secret from a file.
+
+`secrets/shared_secret.txt` is **git-ignored**, so your real secret is never tracked or committed. An absent or empty file means "no secret set" — a relay needs none, and `--secret` always takes precedence.
+
+```bash
+# Per run (overrides the file):
+docker compose run --rm partyline call <onion> --secret 'your-secret'
+
+# Or persist once (used by every run, including up -d):
+echo -n 'your-secret' > secrets/shared_secret.txt   # -n strips the trailing newline
+chmod 600 secrets/shared_secret.txt
+```
+
+`docker-compose.yml` already wires it up:
+
+```yaml
+services:
+  partyline:
+    volumes:
+      - ./secrets:/run/secrets:ro                          # dir mounted read-only; the file is optional
+    environment:
+      - SHARED_SECRET_FILE=/run/secrets/shared_secret.txt  # app reads from here
+```
+
+> A directory bind mount is used on purpose: a Compose `secrets:` file source must exist or `docker compose up` fails, which would force the secret file to be committed. Mounting the directory works on a fresh clone even when the file doesn't exist yet.
+
+**Precedence (highest first):** `--secret` flag → `SHARED_SECRET_FILE` (the bind-mounted file) → saved secret (`data/script/shared_secret`) → interactive prompt. The `secrets/` directory is git-ignored (only an empty `.gitkeep` is tracked), so your real secret is never committed.
+
+**SELinux (Fedora/RHEL):** `docker-compose.yml` sets `security_opt: label:disable`, which runs the container as `spc_t` (unconfined) — that's what lets it read the secrets mount without a `:z` relabel. It also covers PulseAudio socket access. Without it you'd see an AVC denial on the secrets file.
+
+Rebuild after a code change: `docker compose build`.
+
+</details>
+
+
+
+
+<details id="your-onion-identity-backup--restore--vanity">
+<summary><strong>Your .onion identity (backup / restore / vanity)</strong></summary>
+
+<br>
+
+The private key lives in `./data/docker/tor/hidden_service/` — a plain directory inside the project. It survives all `docker compose run` restarts and is part of the project directory like everything else. Zip the whole project folder and your identity comes with it.
+
+```bash
+# Show your address
+docker compose run --rm --entrypoint bash partyline \
+    -c 'cat /var/lib/tor/hidden_service/hostname'
+
+# Back up your identity
+cp -r data/docker/tor/hidden_service onion-backup
+
+# Restore from backup
+cp -r onion-backup/. data/docker/tor/hidden_service/
+chmod 700 data/docker/tor/hidden_service
+chmod 600 data/docker/tor/hidden_service/hs_ed25519_*
+```
+
+**Change your address** — destroys the old one (back up first): Script menu **n** = random rotate; Docker menu **v** = vanity.
+
+<a id="vanity-onion-address-docker"></a>
+**Vanity address (Docker):**
+
+A vanity `.onion` address starts with characters you choose — for example `torpedo...onion` instead of a random 56-character string. The address is still cryptographically generated; the prefix is found by brute-forcing key pairs until one produces a matching address. There is no shortcut and no way to claim a specific address someone else already holds.
+
+**Benefits**
+
+- Makes your address recognizable at a glance — useful for branding, logging, or just sanity-checking you dialed the right peer.
+
+- Longer custom prefixes are statistically harder to spoof with a look-alike address.
+
+**How to Access**
+
+In the Docker menu **v** runs the bundled [`mkp224o`](https://github.com/cathugger/mkp224o) brute-forcer for an address starting with letters you choose. Prefix: 1–8 chars, base32 only (`a`–`z`, `2`–`7`). Search time scales ~32× per extra char:
+
+| Prefix length | Typical time |
+|--------------|--------------|
+| 3 chars | Seconds |
+| 5 chars | 1–5 min |
+| 6 chars | 30 min – hours |
+| 7 chars | Days |
+| 8 chars | Months |
+
+Ctrl-C aborts safely. **Installing the new key permanently replaces your current `.onion`.**
+
+
+**Where the keys are stored**
+
+The three files that make up an onion identity are stored in `./data/docker/tor/hidden_service/` (bind-mounted into the container at `/var/lib/tor/hidden_service/`):
+
+| File | Purpose |
+|------|---------|
+| `hostname` | Your `.onion` address (public, shareable) |
+| `hs_ed25519_public_key` | Ed25519 public key |
+| `hs_ed25519_secret_key` | Ed25519 private key — keep this secret |
+
+
+**Bringing your own vanity key**
+
+If you generated a key pair externally (e.g., with a faster machine or a different tool), copy the three files into `data/docker/tor/hidden_service/` before the first run:
+
+```bash
+mkdir -p data/docker/tor/hidden_service
+cp hostname hs_ed25519_public_key hs_ed25519_secret_key data/docker/tor/hidden_service/
+chmod 700 data/docker/tor/hidden_service
+chmod 600 data/docker/tor/hidden_service/hs_ed25519_*
+```
+
+All three files (`hostname`, `hs_ed25519_public_key`, `hs_ed25519_secret_key`) must be present and consistent or Tor will reject the service.
+
+</details>
+
+
+
+
+<details>
+<summary><strong>Running Script (no Docker)</strong></summary>
+
+<br>
+
+```bash
+chmod +x partyline.sh
+./partyline.sh
+```
+
+Auto-detects your platform and offers to install dependencies via your package manager (you're asked before anything is installed). Undo everything with `./partyline.sh uninstall`.
+
+| Platform | Package manager | Audio |
+|----------|----------------|-------|
+| Linux | apt / dnf / pacman | PulseAudio/PipeWire (`parecord`/`paplay`), ALSA fallback |
+| macOS | Homebrew (auto-installed) | ffmpeg |
+| Android/Termux | `pkg` | termux-microphone-record |
+
+<a id="snowflake"></a>**Snowflake** (censorship circumvention via [snowflake.torproject.org](https://snowflake.torproject.org/)) is Script-only — not available in Docker.
+
+</details>
+
+
+
+
+<details>
+<summary><strong>What gets installed (Script only)</strong></summary>
+
+<br>
+
+Docker bundles everything — skip this. Script/Termux: the script asks before installing. None of these phone home; all are standard open-source tools.
+
+| Package | What it does |
+|---------|-------------|
+| [**tor**](https://www.torproject.org/) | Creates your `.onion` address, tunnels all traffic anonymously |
+| [**opus-tools**](https://opus-codec.org/) (`opusenc`/`opusdec`) | Compresses voice ~10× for Tor's limited bandwidth |
+| [**socat**](http://www.dest-unreach.org/socat/) | Moves audio through the Tor SOCKS proxy — the wire between callers |
+| [**openssl**](https://www.openssl.org/) | AES-256-CBC encryption + HMAC-SHA256 signing |
+| **pulseaudio-utils** (`parecord`/`paplay`) | Sound-server audio (PulseAudio + PipeWire) |
+| **alsa-utils** (`arecord`/`aplay`) | ALSA direct fallback (headless/Docker) |
+| [**ffmpeg**](https://ffmpeg.org/) / **ffplay** | Audio on macOS (AVFoundation) and Android/Termux |
+| [**qrencode**](https://fukuchi.org/works/qrencode/) | `.onion` QR code in the terminal (optional, on first use) |
+| **termux-api** *(Android only)* | Mic access + `termux-wake-lock`. Install from F-Droid |
+
+</details>
+
+
+
+
+<details>
+<summary><strong>Party line capacity</strong></summary>
+
+<br>
+
+Tor bandwidth is the bottleneck. A 10-second voice message is ~20 KB encrypted, fanned out to N-1 listeners:
+
+| Callers | Outbound per message | Expected experience |
+|---------|---------------------|---------------------|
+| 2–3 | 20–40 KB | Reliable on most connections |
+| 3–5 | 40–80 KB | Good; occasional delay on mobile data |
+| 5–10 | 80–180 KB | Pushing limits; noticeable delays |
+| 10+ | 180 KB+ | Unreliable; queuing and message loss |
+
+Realistic ceiling: **3–5 callers** on a phone (Termux), **5–10** on a wired Linux machine. Lower the Opus bitrate (Settings → Opus encoding) to help at higher counts.
+
+</details>
+
+
+
+
+<details>
+<summary><strong>Settings that require a restart</strong></summary>
+
+<br>
+
+These are written into [`torrc`](https://2019.www.torproject.org/docs/tor-manual.html.en) and read only at Tor startup — the running process can't reload them mid-session:
+
+- **ExcludeNodes / country exclusions** — Settings → Tor settings → Country exclusions
+- **Single-hop mode** — Settings → Tor settings → Single-hop mode
+- **LISTEN_PORT** — edit `.env`
+
+Everything else (cipher, bitrate, HMAC, PTT mode) takes effect immediately, even mid-call. To restart: press **0** to exit, then re-run `docker compose run --rm partyline`.
+
+</details>
+
+
+
+
+<details>
+<summary><strong>Exclude countries from Tor circuits (Five Eyes / Nine Eyes / Fourteen Eyes)</strong></summary>
+
+<br>
+
+Tor builds circuits through relays in countries all over the world. This setting lets you exclude specific countries so your circuit never passes through a relay operating under that jurisdiction.
+
+**In-app:** Settings → Tor settings → Country exclusions. Three presets are built in:
+
+| Preset | Countries |
+|--------|-----------|
+| **Five Eyes** | US, GB, CA, AU, NZ |
+| **Nine Eyes** | Five Eyes + DK, FR, NL, NO |
+| **Fourteen Eyes** | Nine Eyes + DE, BE, IT, SE, ES |
+
+The [Five Eyes](https://en.wikipedia.org/wiki/Five_Eyes) (FVEY) is a long-standing signals-intelligence sharing agreement. Nine and Fourteen Eyes expand that network with additional SIGINT partners. Excluding these countries reduces the chance of your circuit passing through a relay operated in a jurisdiction that participates in mass-surveillance data sharing.
+
+A **Custom** option lets you enter any combination of country codes in Tor format (`{CC}`, comma-separated). A full reference table of ~80 countries is shown in the Settings menu.
+
+**CLI:**
+```bash
+./partyline.sh --exclude-nodes '{US},{GB},{CA},{AU},{NZ}'
+```
+
+**`.env` (Docker):**
+```env
+EXCLUDE_NODES={US},{GB},{CA},{AU},{NZ},{DK},{FR},{NL},{NO}
+```
+
+**What this does — and doesn't do:**
+
+- ✅ Prevents your circuit from being routed *through* relays in the excluded countries
+- ✅ Reduces passive traffic-analysis exposure to those intelligence communities
+- ❌ Does **not** hide from your own ISP that you're using Tor
+- ❌ Does **not** prevent your ISP's upstream network path from crossing excluded jurisdictions before reaching the Tor network — that's outside Tor's control
+- ❌ Shrinking the usable relay pool can slow circuit build time and hurt reliability on networks with few non-excluded relays
+
+> **Note:** ExcludeNodes is a `torrc` directive — it takes effect only when Tor starts. Changing it mid-session requires an app restart. The Tor Project recommends using this feature sparingly and with awareness of the reliability trade-off.
+
+</details>
+
+
+
+
+<details>
+<summary><strong>Security model</strong></summary>
+
+<br>
+
+| Property | Notes |
+|----------|-------|
+| **Encryption** | AES-256-CBC + [PBKDF2](https://datatracker.ietf.org/doc/html/rfc8018) (100k iterations). 21 cipher options (AES/Camellia/ARIA in CBC/CTR/CFB/OFB + ChaCha20). No AEAD/GCM — [`openssl enc`](https://www.openssl.org/docs/man3.0/man1/openssl-enc.html) can't stream them. |
+| **Secret storage** | Shared secret encrypted at rest; passphrase required to load. |
+| **HMAC signing** | Optional. Cryptographically signs every protocol message; prevents replay attacks. |
+| **Overwrite before delete** | Optional (Settings → Security). Random-overwrites every temp file (recordings, chunks, payloads, nonce logs) before deletion. **SSD caveat:** wear-leveling defeats this — full-disk encryption ([LUKS](https://gitlab.com/cryptsetup/cryptsetup)/[FileVault](https://support.apple.com/en-us/102650)) is the only reliable defense against physical recovery. |
+| **Zero-knowledge relay** | Forwards encrypted blobs. Never receives the shared secret. Cannot decrypt audio. |
+| **No forward secrecy** | Compromise of the shared secret exposes all calls made with it. Rotate secrets between sensitive conversations. |
+| **Authentication** | Callers identified by `.onion` address + pre-shared secret. No certs, no key exchange, no accounts — anyone with the secret can call in. |
+| **Flood / DoS protection** | The relay holds no secret, so it can't verify traffic — instead it **rate-limits each caller** (`RELAY_MAX_MSG_PER_SEC`, default 15/s) and **drops oversized or excess messages** before fan-out, so no one caller can flood, mute, or fork-bomb the group. The sender also **caps push-to-talk length** (`MAX_PTT_SECONDS`, default 120 s), **audio size** (`MAX_AUDIO_B64`), and **text length**; receivers drop messages over `MAX_MSG_B64`. All tunable via `.env` — see [Configuration](#-reference). These drops are **intentional**, not bugs. |
+
+</details>
+
+
+
+
+<details id="-architecture">
+<summary><strong>Architecture & code map</strong></summary>
+
+<br>
+
+**Audio pipeline** — push-to-talk, half-duplex: one complete recording per PTT press, sent as a single packet. No live streaming.
+
+```text
 SENDER                                          RECEIVER
 ──────                                          ────────
 Microphone                                      Speaker
     │                                               ▲
     ▼                                               │
-Raw PCM (8kHz, 16-bit, mono)                    Opus decode
+Raw PCM (8 kHz, 16-bit, mono)                   Opus decode
     │                                               ▲
     ▼                                               │
-Opus encode (16kbps)                            AES-256-CBC decrypt
+Opus encode (16 kbps)                           AES-256-CBC decrypt
     │                                               ▲
     ▼                                               │
 AES-256-CBC encrypt                             Base64 decode
     │                                               ▲
     ▼                                               │
-Base64 encode ──▶ socat ──▶ Tor ──▶ socat ──▶ Receive
+Base64 ──▶ socat ──▶ Tor ──▶ socat ──▶ Receive
 ```
 
-The wire protocol is line-based text over a TCP connection:
+**Wire protocol** — line-based text over TCP through the Tor hidden service:
 
-| Message | Description |
-|---|---|
-| `ID:<onion>` | Caller ID -- sender's `.onion` address |
-| `CIPHER:<name>` | Sender's encryption cipher. Exchanged on connect and on change. |
-| `PTT_START` | Sender has begun recording |
-| `PTT_STOP` | Sender has finished; audio follows or has been sent |
+| Message | Meaning |
+|---------|---------|
+| `ID:<onion>` | Sender's `.onion` address |
+| `CIPHER:<name>` | Sender's active cipher (on connect + on change) |
+| `PTT_START` / `PTT_STOP` | Recording start/end boundaries |
 | `AUDIO:<base64>` | Complete encrypted audio message |
 | `MSG:<base64>` | Encrypted text message |
-| `HANGUP` | Sender is disconnecting |
-| `PING` | Keepalive signal |
-| `RELAY:1` | Relay greeting -- sent by relay on connect, triggers group mode |
-| `GROUP:<n>` | Group size update -- broadcast by relay when callers join or leave |
+| `HANGUP` / `PING` | Disconnect / keepalive |
+| `RELAY:1` | Relay greeting → triggers group mode on the receiver |
+| `GROUP:<n>` | Group size update, broadcast when callers join or leave |
 
-On Termux, an additional conversion step handles Android's native M4A recording format, using `ffmpeg` to convert to raw PCM before Opus encoding.
+> **Cipher mismatch:** decryption fails silently when both sides differ. The call header shows a red ● when the exchanged `CIPHER:` values don't match. Fix via **S → Settings** mid-call.
 
----
+**Container layout:**
 
-## Security Model
+```text
+docker compose run --rm partyline
+        │
+        ▼
+[entrypoint.sh]  (root)
+  1. Fix /var/lib/tor permissions (chown debian-tor:debian-tor)
+  2. Generate /tmp/partyline.torrc from saved config
+  3. tor -f torrc &  (User debian-tor → drops privileges on start)
+  4. Wait for "Bootstrapped 100%"
+  5. Wait for hidden_service/hostname
+  6. exec /partyline.sh
+        │
+        ▼
+[partyline.sh]  (interactive TTY required)
+  Codec:    opusenc / opusdec  (8 kHz, 16 kbps, speech)
+  Encrypt:  openssl enc aes-256-cbc -pbkdf2 -iter 100000
+  HMAC:     openssl dgst -sha256 -hmac  (optional)
+  Transport: socat SOCKS4A:127.0.0.1:9050 (outbound via Tor)
+             socat TCP-LISTEN:7777        (inbound)
+  QR code:  qrencode -t ANSIUTF8
 
-**Encryption:** All audio is encrypted with a user-configurable cipher (default: AES-256-CBC) before transmission. 21 curated ciphers are available, ranked from strongest (256-bit) to adequate (128-bit). The key is derived from a pre-shared secret using PBKDF2 with 10,000 iterations. The encryption is applied at the application layer, independent of Tor's transport encryption. Secrets are passed to OpenSSL via file descriptors (`-pass fd:3`), not command-line arguments, so they are never exposed in the process table.
-
-**Cipher negotiation:** Both parties exchange cipher names on connect and whenever a cipher is changed mid-call. Cipher names are not secret (Kerckhoffs's principle). If the local and remote ciphers do not match, both parties see red indicators in the call header.
-
-**Transport:** All data is routed through Tor hidden service circuits. Neither party's IP address is exposed. There is no clearnet traffic. The connection cannot be attributed to either party by a network observer.
-
-**Traffic analysis resistance:** The record-then-send model produces irregular transmission patterns (variable-length messages at irregular intervals), which are harder to fingerprint than continuous streaming.
-
-**Authentication:** The shared secret serves as implicit authentication. If both parties do not have the same secret, decryption fails and no audio is played. On connect, both parties exchange `.onion` addresses for caller identification. The secret can optionally be encrypted at rest with a passphrase; on launch, the script prompts for the passphrase to unlock it.
-
-**HMAC protocol signing (optional):** When enabled, every wire protocol message -- including control signals like HANGUP, PTT_START, and PING -- is signed with HMAC-SHA256 derived from the shared secret. A random nonce is included per message so that identical commands produce unique signatures. Seen nonces are tracked per call and duplicates are rejected, preventing replay attacks. The HMAC setting is frozen at call start via a runtime file so that both the send and receive paths always agree, even if the setting is toggled mid-call (changes take effect on the next call). On the receiving end, any message with an invalid, missing, or replayed signature is silently dropped. This prevents an attacker who compromises the Tor circuit (but does not have the shared secret) from injecting or replaying commands. Both parties must enable HMAC for calls to work. Not compatible with versions prior to 1.1.3.
-
-**Limitations:**
-
-- The shared secret must be exchanged out-of-band through a secure channel (in person, encrypted messaging, etc.).
-- There is no forward secrecy. If the shared secret is compromised, all past and future communications using that secret can be decrypted.
-- The protocol does not protect against a compromised endpoint. If either device is compromised, the attacker has access to the plaintext audio.
-
-**Relay mode security:** The relay is architecturally zero-knowledge. It never possesses the shared secret and cannot decrypt any content. Audio data flows through kernel pipe buffers (FIFOs) that exist only in memory -- nothing is written to disk. When the relay stops, all temporary files are deleted. The relay operator cannot determine what was said, who the callers are, or read any messages. The relay filters all control signals (HANGUP, ID:, CIPHER:, PTT_START, PTT_STOP) and only forwards AUDIO:, MSG:, and PING. A global passive adversary could perform traffic correlation analysis to associate callers with the relay, but message content remains opaque.
-
-**Relay capacity:** The primary bottleneck is Tor bandwidth. Tor hidden service throughput is highly variable and depends on circuit quality, relay congestion, and geographic distance. A typical 10-second voice message is ~20KB encrypted, and each transmission fans out to N-1 listeners.
-
-| Callers | Outbound per message | Expected experience |
-|---|---|---|
-| 2--3 | 20--40KB | Reliable on most connections |
-| 3--5 | 40--80KB | Good on stable circuits, delays possible on mobile data |
-| 5--10 | 80--180KB | Pushing limits, noticeable delays between transmissions |
-| 10+ | 180KB+ | Unreliable, significant queuing and potential message loss |
-
-Realistic capacity is **3--5 callers** for a relay running on a phone (Termux), or **5--10 callers** on a dedicated Linux machine with a stable connection. Relays running on mobile devices face additional constraints: mobile data adds latency on top of Tor, Android may kill background Termux processes to reclaim memory, and battery drain increases with each connected caller. Tor circuit bandwidth can vary from 50KB/s to 500KB/s depending on path quality, and circuits can degrade or rotate mid-session. Single-hop mode improves throughput but does not eliminate Tor relay congestion. These estimates assume the PTT model where only one person transmits at a time -- simultaneous transmissions would degrade performance further. Callers in a group call should consider lowering their Opus bitrate (Settings → Opus encoding) to reduce message sizes and lighten the load on the relay.
-
----
-
-## Configuration
-
-All configuration is stored in `.terminalphone/` relative to the script location:
-
-```
-.terminalphone/
-  tor_data/            Tor data directory and hidden service keys
-  audio/               Temporary audio files (cleaned on exit)
-  pids/                Process ID tracking
-  shared_secret        Encrypted shared secret file
-  torrc                Generated Tor configuration
+[Volumes]
+  ./data/docker/tor       (bind mount) → /var/lib/tor       (.onion key pair, Tor state)
+  ./data/docker/partyline (bind mount) → /data/.partyline   (encrypted secret, config, FIFOs)
 ```
 
-Default audio parameters (defined at the top of the script):
+**Code map** — all logic lives in `partyline.sh` (5 597 lines total):
 
-| Parameter | Default | Description |
-|---|---|---|
-| `LISTEN_PORT` | 7777 | TCP port for incoming connections |
-| `TOR_SOCKS_PORT` | 9050 | Tor SOCKS proxy port |
-| `OPUS_BITRATE` | 16 | Opus encoding bitrate in kbps |
-| `CIPHER` | aes-256-cbc | Encryption cipher (configurable via Settings) |
-| `SNOWFLAKE_ENABLED` | 0 | Snowflake bridge for censorship circumvention |
-| `AUTO_LISTEN` | 0 | Auto-listen for calls when Tor starts |
-| `PTT_KEY` | SPACE | Push-to-talk key (configurable via Settings) |
-| `VOL_PTT` | 0 | Volume-down double-tap PTT, Termux only (experimental) |
-| `EXCLUDE_NODES` | (empty) | Tor ExcludeNodes country list (e.g. `{US},{GB}`) |
-| `HMAC_AUTH` | 0 | HMAC-sign all protocol messages (optional, both sides must match) |
-| `OVERWRITE_DELETE` | 0 | Overwrite temp files with random data before deletion (off by default) |
-| `PTT_CHIME` | off | PTT notification chime preset (off, tone, double, chirp, ding, click, custom) |
-| `SINGLE_HOP` | 0 | Single-hop Tor mode for lower latency (disables server anonymity) |
-| `SAMPLE_RATE` | 8000 | Audio sample rate in Hz |
-| `CHUNK_DURATION` | 1 | Duration for audio test chunks in seconds |
+| Lines | Contents |
+|-------|---------|
+| 1–153 | Config globals, Docker/script detection, color codes, platform & Homebrew setup |
+| 154–508 | Core helpers: logging, config load/save, dep check, package-manager wrappers (`_pm_init`, `pm_install`, …) |
+| 509–659 | Audio backend detection (`detect_audio_backend`, `_server_available`, ALSA probes) |
+| 660–942 | Dependency install/uninstall (`install_deps`, `uninstall_all`) |
+| 943–1246 | Tor management: `setup_tor`, `install_snowflake`, `_tor_spawn/wait`, `start/stop_tor`, `rotate_onion` |
+| 1247–1566 | Vanity onion, Docker Tor restart, country codes, circuit hops (`generate_vanity_onion`, `get_circuit_hops`) |
+| 1567–1758 | Secrets, cipher helpers, encryption, HMAC protocol signing (`encrypt_file`, `proto_send`/`proto_verify`) |
+| 1759–2053 | Audio pipeline: record, play, PTT send/stop (`_record_raw`, `_play_with`, `stop_and_send`, `play_chunk`) |
+| 2054–2568 | Call infrastructure: cleanup, auto-listener, wakelock, `listen_for_call`, `_dial_remote`, `call_remote` |
+| 2569–2983 | Relay mode, call header drawing, circuit refresh (`relay_mode`, `broadcast_count`, `draw_call_header`) |
+| 2984–3426 | `in_call_session` — PTT event loop, receive handler, mid-call settings |
+| 3427–3656 | `test_audio`, `show_status` |
+| 3657–4152 | Audio device menus: picker, Android flow, noise generator, output tester, diagnostics, `audio_menu` |
+| 4153–4867 | Settings menus: Opus, PTT, Tor, ports, single-hop, country exclusions (`settings_menu` + sub-menus) |
+| 4868–5043 | Security settings: HMAC, overwrite-on-delete (`settings_security`, `settings_hmac`, `settings_overwrite_delete`) |
+| 5044–5310 | Banner and main menu (`show_banner`, `main_menu`) |
+| 5312–5488 | CLI interface: `print_cli_help`, `parse_args`, `_cli_getval`, `apply_cli_overrides` |
+| 5489–5597 | Entry point: bootstrap, dep check, Tor start, command dispatch |
 
----
+`entrypoint.sh` is Docker-only: sets `/var/lib/tor` permissions, generates `torrc`, starts Tor as `debian-tor`, waits for bootstrap, then `exec`s `partyline.sh`.
 
-## Troubleshooting
-
-**Tor fails to bootstrap:**
-Check the Tor log at `.terminalphone/tor_data/tor.log`. Common causes include clock skew, network restrictions blocking Tor, or another Tor instance using the same SOCKS port.
-
-**No audio on Termux:**
-Verify that the Termux:API app is installed from F-Droid (not just the `termux-api` package). Grant microphone permissions to the Termux:API app in Android settings. Run the audio loopback test (option 5) to verify.
-
-**ffmpeg installation fails on Termux:**
-Run `pkg upgrade` before installing dependencies. The installer does this automatically, but if you installed packages manually, outdated shared libraries can cause linking errors.
-
-**Audio test works but calls are silent:**
-Confirm that both parties are using the same shared secret. Mismatched secrets will result in decryption failure with no error message -- the call connects but no audio is heard.
-
-**Snowflake bridge is slow to connect:**
-Snowflake routes traffic through WebRTC proxies, which adds extra bootstrapping time. It is normal for Tor to take 30--60 seconds (or more) to reach 100% when Snowflake is enabled. The script will display a patience notice during bootstrap.
-
-**First Tor bootstrap is slow:**
-On first launch, Tor must download the full network consensus from scratch, which can take a minute or two. The script detects this and displays a notice. The bootstrap timeout is automatically extended from 120 to 300 seconds on first run. Subsequent launches use cached consensus data and are much faster.
-
-**Hang up does not return to menu:**
-If the script hangs after pressing Q, press Ctrl+C to force cleanup and return to the shell.
-
-**`Cannot install under Rosetta 2 in ARM default prefix` on macOS:**
-This happens on Apple Silicon when the terminal is running under Rosetta 2 (an `x86_64` process) but Homebrew lives in the native ARM prefix (`/opt/homebrew`). The dependency installer (option **7**) now detects this and automatically reruns `brew` under `arch -arm64`. If you are installing packages manually, prefix them yourself: `arch -arm64 brew install <pkg>`. Alternatively, launch the script natively with `arch -arm64 bash terminalphone.sh`.
-
----
-
-[MIRROR V1.0.0](https://bin.disroot.org/?e1356291b098cb75#FMQ4gxFwgdr3rjR1dpGS2csLmDPzDEkQW16fQ5P2Vt4y)
-
-[MIRROR V1.0.1](https://bin.disroot.org/?d3bc0b8976113f58#AuUm4ev4vfeVmPyrh2KjAdhDP6WN4UX6yKQh9ERGD5Qt)
-
-[MIRROR V1.0.2](https://bin.disroot.org/?6bc5b2fd046de1d7#G7TmnytrMeaM5AZYWth6BjjdqUb9RDf3K9erHUExKcGX)
-
-[MIRROR V1.0.3](https://bin.disroot.org/?c5010f039e4693fd#Brp1w7LRQH9d5Ye5npZDPxNVR855SW9QUAk9cJaUuLYX)
-
-[MIRROR V1.0.4](https://bin.disroot.org/?1831f6b78e349142#7zaAMVPNJL3MfbGJzjtm6cCPcvQftf4ULXupdne5dRKw)
-
-[MIRROR V1.0.5](https://bin.disroot.org/?edfcfc844987ed03#56LuBbqbkfNDXfHpydyaB3VcWYhYenX18dtSvNumERY9)
-
-[MIRROR V1.0.6](https://bin.disroot.org/?6c7b4774108b0c1c#GQPst46zjAYidndmNvytforX7MK2LyHanL4d829vVcv4)
-
-[MIRROR V1.0.7](https://bin.disroot.org/?047003637623b4fa#EwmaysciDpiDkht8xV7ce3QcR9oxFXaxSikh4cLheXBB)
-
-[MIRROR V1.0.8](https://bin.disroot.org/?06e38bd64e6fbdad#88MYs3dmq9rSMkmocpW3NYaaG4YfSdRCc9LJnEEzqGYp)
-
-[MIRROR V1.0.9](https://bin.disroot.org/?950218a9a7c71c66#E7Z94VCGBZozrfXYhGwKyAdMeTxuavg92tA1pn2DbrrB)
-
-[MIRROR V1.1.0](https://bin.disroot.org/?0b0da14f31521b3a#B1c23J8xFoZZKErvGG28PgbtfgtMUcDABWmQEoSZfXgh)
-
-[MIRROR V1.1.1](https://bin.disroot.org/?d8e2d4f0300eb5af#9Y1C8CkcH9jAmv1fh4GZs1yYpJmWCG5xG3SvDYdwnJam)
-
-[MIRROR V1.1.2](https://bin.disroot.org/?b1059616f880925f#8ef2oscZXUkPAsJZwGfWvLPQagVAk5GgW4DyssmLvQpG)
-
-[MIRROR V1.1.3](https://bin.disroot.org/?b02658801518aaa7#JE6CsBLWUwAnTdBqeHgeXL7QF5UExgi9rnygcfyMZjCJ)
-
-[MIRROR V1.1.4](https://bin.disroot.org/?d31248fc44c287a0#HQELFWFEMpM9kfTZSGDXTdGFMVKTejox5CajF9Vm4Www)
-
-[MIRROR V1.1.5](https://bin.disroot.org/?284b723ed6aad15f#8VCrrri6yRpdg3uVDSY94wpx7LYkw5uYhm4Vbhka83sM)
-
-[MIRROR V1.1.5.1](https://bin.disroot.org/?26aaef1eff20c271#4GxQQPSDhrszTu1RmERySNVqD2fZW5GZwm3JeL1parpB)
-
-[MIRROR V1.1.6](https://bin.disroot.org/?ae8270578cd9e081#BbcDLU49XqhecvwviHRcdfrZ4vhKdL2AMeKaT5v9oLV1)
-
-[MIRROR V1.1.7](https://bin.disroot.org/?457e4308abe582d8#B9LJG88rmUwrGHHuCof8WpE8CXGmkc2tyrXXicEiJFWk)
+</details>
 
 
 ---
 
-## License
+## ❓ FAQ
 
-MIT
+**Can the relay or anyone in the middle hear me?**
+No — audio is encrypted end-to-end before it hits the network, and the relay never receives the shared secret.
+
+**Do I need port forwarding?**
+No. Tor hidden services handle inbound through Tor itself — it works behind NAT, CGNAT, and firewalls.
+
+**Can someone find my IP?**
+No — onion routing hides both ends. (Exception: single-hop mode, off by default, trades anonymity for speed.)
+
+**Why push-to-talk instead of a real phone call?**
+Tor latency and bandwidth make full-duplex unreliable. PTT sends a complete clip per transmission, which survives Tor. Expect a few seconds of end-to-end latency — that's Tor, not the app.
+
+**Do I need an account or phone number?**
+None. Your identity is your `.onion` address; authentication is the shared secret.
+
+**How do I audit it?**
+Read `partyline.sh` — one Bash file, [code map](#-architecture) above. No binaries, no telemetry, no network calls except via Tor.
+
+**Tor is blocked on my network.**
+Enable [Snowflake](#snowflake) (Script only).
+
+**What does Tor NOT protect against?**
+No forward secrecy (rotate secrets regularly). It doesn't hide *that* you're using Tor — use Snowflake if that matters. SSDs defeat overwrite-on-delete — use full-disk encryption.
+
+**Is it legal?**
+Tor and end-to-end encryption are legal in most countries. Comply with your local law.
+
+
+---
+
+## 🔀 Alternatives
+
+Here are some other related projects:
+
+| Tool | Hides IP | No account | Voice | Group | Notes |
+|------|:---:|:---:|:---:|:---:|------|
+| **🧅 Tor Party Line** | ✅ Tor | ✅ | ✅ PTT | ✅ | Terminal, single script; half-duplex |
+| [Mumble](https://www.mumble.info/) | ❌ | ✅ | ✅ full-duplex | ✅ | Low-latency, required software |
+| [Jami](https://jami.net/) | ⚠️ P2P | ✅ | ✅ full-duplex | ✅ | Serverless GUI; metadata via DHT |
+| [Briar](https://briarproject.org/) | ✅ Tor | ✅ | ❌ | ✅ | Tor messaging, no voice |
+| [Cwtch](https://cwtch.im/) | ✅ Tor | ✅ | ❌ | ✅ | Metadata-resistant text, no voice |
+| [Signal](https://signal.org/) | ❌ | ❌ | ✅ full-duplex | ✅ | Great E2EE; needs a phone number |
+| [OnionShare](https://onionshare.org/) | ✅ Tor | ✅ | ❌ | ⚠️ | Tor files + chat, not voice |
+
+
+---
+
+## 🙏 Credits
+
+This project is built upon [TerminalPhone](https://gitlab.com/here_forawhile/terminalphone) by [here_forawhile](https://gitlab.com/here_forawhile).
+
+
+---
+
+## 📄 License
+
+MIT — see [LICENSE](LICENSE).

@@ -1,0 +1,107 @@
+services:
+  partyline:
+    build: .
+    container_name: tor-party-line
+    restart: unless-stopped
+    stdin_open: true   # Required: PTT loop uses stty raw -echo -icanon; also keeps stdin open for relay daemon
+    security_opt:
+      - label:disable   # SELinux (Fedora/RHEL): runs the container as spc_t (unconfined) — no type-enforcement
+                        # checks apply, so the container can access the user_tmp_t PulseAudio socket AND read
+                        # the Docker-secrets file (user_home_t) without needing selinux: z on either mount.
+                        # Silently ignored on non-SELinux systems (Debian, Arch, macOS).
+    devices:
+      - /dev/snd:/dev/snd  # ALSA direct hardware passthrough
+    volumes:
+      - ./data/docker/tor:/var/lib/tor:z           # Bind mount: .onion keys + Tor state + ControlPort cookie
+      - ./data/docker/partyline:/data/.partyline:z # Bind mount: partyline config and state
+      - ./secrets:/run/secrets:ro                  # Bind mount: shared-secret dir (read-only; the file is optional)
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:/run/user/${UID:-1000}/pulse  # PipeWire/PulseAudio socket directory
+    environment:
+      - TERM=${TERM:-xterm-256color}   # ANSI colors + cursor positioning for call screen
+      # ── Call options — the `.env` equivalents of the CLI flags (parity) ──
+      # Set any of these in .env; a CLI flag passed to `docker compose run`
+      # still overrides them. The shared secret is NOT here — it's a bind-mounted
+      # file (see the secrets/ mount above) so it never lands in the environment.
+      - SHARED_SECRET_FILE=/run/secrets/shared_secret.txt  # app reads the secret from this mounted file
+      - OPUS_BITRATE=${OPUS_BITRATE:-16}
+      - LISTEN_PORT=${LISTEN_PORT:-7777}
+      - TOR_SOCKS_PORT=${TOR_SOCKS_PORT:-9050}  # Docker torrc always binds 9050; 9052 is the Script default
+      - CIPHER=${CIPHER:-aes-256-cbc}
+      - HMAC_AUTH=${HMAC_AUTH:-1}
+      - SNOWFLAKE_ENABLED=${SNOWFLAKE_ENABLED:-0}
+      - SINGLE_HOP=${SINGLE_HOP:-0}
+      - AUTO_LISTEN=${AUTO_LISTEN:-0}
+      - SHOW_CIRCUIT=${SHOW_CIRCUIT:-0}
+      - EXCLUDE_NODES=${EXCLUDE_NODES:-}
+      # PulseAudio/PipeWire socket — routes audio through the host user's session.
+      # XDG_RUNTIME_DIR is already set in your login shell so docker compose picks it up.
+      # If your UID is not 1000, set UID=$(id -u) in .env (or export UID before running).
+      - PULSE_SERVER=unix:/run/user/${UID:-1000}/pulse/native
+      - XDG_RUNTIME_DIR=/run/user/${UID:-1000}
+      # ALSA device overrides — fallback if PulseAudio socket is unavailable.
+      # Run 'arecord -l' on the host to find your card/device numbers.
+      - ALSA_DEVICE=${ALSA_DEVICE:-}          # e.g. plughw:2,0 — capture device
+      - ALSA_PLAY_DEVICE=${ALSA_PLAY_DEVICE:-} # e.g. plughw:0,0 — playback device (defaults to same card as capture)
+
+# ── Shared secret — bind-mounted file, kept out of .env / the environment ────
+# The secrets/ directory is bind-mounted read-only at /run/secrets (see the
+# volumes: block above); the app reads secrets/shared_secret.txt via
+# SHARED_SECRET_FILE. The directory is git-ignored, so your real secret is never
+# tracked or committed. Provide the secret either way:
+#   • persistent:  echo -n 'your-shared-secret' > secrets/shared_secret.txt
+#   • per-run:     docker compose run --rm partyline call <addr> --secret 'your-secret'
+# An absent or empty file is treated as "no secret set" (relay needs none;
+# --secret overrides). A directory bind mount (rather than a compose `secrets:`
+# block) is used deliberately: a `secrets:` file source must exist or `up` fails,
+# which would force the secret file to be committed. A dir mount works on a fresh
+# clone even when the file doesn't exist yet. See README.
+
+# ─── Usage ──────────────────────────────────────────────────────────────────
+#
+#  Interactive (menu):        docker compose run --rm partyline
+#  Direct relay mode:         docker compose run --rm partyline relay
+#  Persistent relay daemon:   docker compose up -d
+#  View relay logs:           docker compose logs -f
+#  Stop:                      docker compose down
+#
+# ─── First Run ───────────────────────────────────────────────────────────────
+#
+#  1. cp .env.example .env        # Adjust ALSA_DEVICE if needed
+#  2. docker compose run --rm partyline
+#     - Tor bootstraps (~1 min on first run)
+#     - Your .onion address is shown and persisted in ./data/docker/tor/
+#     - Share it with callers and set a shared secret (option 1)
+#
+# ─── Audio: Script vs Docker ─────────────────────────────────────────────────
+#
+#  Script (./partyline.sh): audio prefers the system sound server via
+#    parecord/paplay (which talk to both PulseAudio and PipeWire), honoring
+#    the input/output you selected in your desktop sound settings. This is the
+#    reliable path on multi-soundcard desktops — pick devices via the in-app
+#    "Audio Device Setup" menu, or just leave them on "System default".
+#
+#  Docker (this compose file): the PipeWire PulseAudio-compatible socket is
+#    mounted from the host ($XDG_RUNTIME_DIR/pulse/native) so the container
+#    talks to your desktop's live audio session — same as running via the script.
+#    ALSA direct (/dev/snd) remains as a fallback for headless/bare-ALSA hosts.
+#    On Fedora/RHEL with SELinux enforcing, `security_opt: label:disable` (set
+#    above) is required — without it, container_t is denied write access to the
+#    user_tmp_t socket and paplay/parecord silently fail.
+#
+#  To find your ALSA device number (for the ALSA fallback / overrides):
+#    arecord -l          # lists capture devices (microphones)
+#    aplay -l            # lists playback devices (speakers)
+#
+#  If auto-detection picks the wrong device, set in .env:
+#    ALSA_DEVICE=plughw:2,0        # capture device (card 2, device 0)
+#    ALSA_PLAY_DEVICE=plughw:0,0   # playback device (optional, defaults to same card)
+#  Setting either forces the ALSA-direct backend even in script mode.
+#
+#  Note: plughw allows ALSA to auto-convert sample rates/formats.
+#        hw requires exact format match.
+#
+# ─ Running via the Script (macOS / Android / Linux without Docker) ─────────
+#
+#  ./partyline.sh               # Self-detects platform, installs deps, manages Tor
+#
+# ─────────────────────────────────────────────────────────────────────────────

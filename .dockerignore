@@ -1,0 +1,75 @@
+# ─── Version control ──────────────────────────────────────────────────────────
+.git/
+.gitignore
+.gitattributes
+
+# ─── Editor / IDE ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── Docker / compose files (not needed inside the image) ────────────────────
+docker-compose.yml
+docker-compose.override.yml
+docker-compose*.yml
+.env.example
+
+# ─── Secrets — never sent to Docker build context ─────────────────────────────
+secrets/
+.env
+.env.*
+*.env
+
+# ─── Project runtime data (created at container run time, not build time) ──────
+data/
+# Script-mode runtime dir: Tor hidden-service keys, shared_secret, torrc, pids.
+.torpartyline/
+
+# ─── Docs / misc (not needed in image) ───────────────────────────────────────
+README*
+LICENSE
+*.md
+
+# ─── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── AI / LLM tool directories ───────────────────────────────────────────────
+.claude/
+.openai/
+.github/copilot/
+.copilot/
+.cursor/
+.cursorignore
+.cursorindexingignore
+.codeium/
+.tabnine/
+.aws/amazonq/
+.amazonq/
+.gemini/
+.cody/
+.continue/
+.aider/
+.aider.tags.cache.v3/
+.aider.chat.history.md
+.aider.input.history
+.windsurf/
+.zed/
+.pieces/
+.supermaven/
+.replit/
+replit.nix
+.v0/
+.bolt/
+.devin/
+.sweep/
+.coderabbit/
+.coderabbit.yaml
+
+# ─── Temp / logs ─────────────────────────────────────────────────────────────
+*.tmp
+*.temp
+tmp/
+*.log

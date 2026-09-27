@@ -1,0 +1,116 @@
+# ─── Project runtime data ─────────────────────────────────────────────────────
+# All persistent data lives here. data/script/ = Host OS, data/docker/ = Docker.
+data/
+# Script-mode runtime dir: Tor hidden-service keys, shared_secret, torrc, pids.
+.torpartyline/
+
+# ─── Secrets & environment ────────────────────────────────────────────────────
+secrets/*
+# keep the dir on clone so Docker's bind mount has a host path; ignore everything inside (incl. the real secret)
+!secrets/.gitkeep
+.env
+.env.*
+# keep the committed template; .env.* above would swallow it without this exception
+!.env.example
+*.env
+.env.local
+.env.production
+
+# ─── Version control ──────────────────────────────────────────────────────────
+.git/
+.gitattributes
+
+# ─── Editor / IDE ─────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.swo
+*~
+
+# ─── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── AI / LLM tool directories ───────────────────────────────────────────────
+# Anthropic / Claude
+.claude/
+
+# OpenAI / ChatGPT / Codex
+.openai/
+
+# GitHub Copilot
+.github/copilot/
+.copilot/
+
+# Cursor
+.cursor/
+.cursorignore
+.cursorindexingignore
+
+# Codeium
+.codeium/
+
+# Tabnine
+.tabnine/
+
+# Amazon CodeWhisperer / Q Developer
+.aws/amazonq/
+.amazonq/
+
+# Google Gemini / Duet AI
+.gemini/
+
+# Cody (Sourcegraph)
+.cody/
+
+# Continue.dev
+.continue/
+
+# Aider
+.aider/
+.aider.tags.cache.v3/
+.aider.chat.history.md
+.aider.input.history
+
+# Windsurf (Codeium)
+.windsurf/
+
+# Zed AI
+.zed/
+
+# Pieces
+.pieces/
+
+# Supermaven
+.supermaven/
+
+# Replit AI
+.replit/
+replit.nix
+
+# v0 (Vercel)
+.v0/
+
+# Bolt (StackBlitz)
+.bolt/
+
+# Devin
+.devin/
+
+# Sweep AI
+.sweep/
+
+# CodeRabbit
+.coderabbit/
+.coderabbit.yaml
+
+# ─── Temp / build artifacts ───────────────────────────────────────────────────
+*.tmp
+*.temp
+tmp/
+*.log
