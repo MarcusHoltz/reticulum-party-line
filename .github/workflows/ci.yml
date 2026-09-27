@@ -1,0 +1,119 @@
+# =========================================================================
+# Build & Smoke Test
+# =========================================================================
+#
+# QUICK START
+#   Go to Actions > "CI" > Run workflow.
+#   No secrets or configuration needed. Works on forks.
+#
+# WHAT IT DOES
+#   1. audit-pins: verifies every Dockerfile FROM has a resolvable
+#      sha256 digest pin and pip version pins exist on PyPI
+#      (docker/hooks/audit-pins.sh)
+#   2. build-and-smoke: builds the Docker image and checks that key
+#      dependencies (RNS Python module, socat, openssl) are present
+#
+# WHEN IT RUNS
+#   - Manual: workflow_dispatch (click "Run workflow" in Actions)
+#   - Automatic: on any PR that touches the Dockerfile
+#
+# CACHING
+#   Docker layers are cached between runs via GitHub Actions cache.
+#   First run pulls and builds everything; subsequent runs reuse
+#   cached layers and only rebuild what changed.
+#
+# FOR FORKS
+#   Works immediately with zero configuration. Every job uses only
+#   local Docker operations. No registry logins, no secrets, no
+#   network pushes.
+#
+# =========================================================================
+
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+
+jobs:
+  audit-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Audit Dockerfile pins
+        run: ./docker/hooks/audit-pins.sh
+
+      - name: Job summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ```
+            ____            _         _ _
+           |  _ \ __ _ _ __| |_ _   _| (_)_ __   ___
+           | |_) / _` | '__| __| | | | | | '_ \ / _ \
+           |  __/ (_| | |  | |_| |_| | | | | | |  __/
+           |_|   \__,_|_|   \__|\__, |_|_|_| |_|\___|
+                                 |___/
+            ____      _   _            _
+           |  _ \ ___| |_(_) ___ _   _| |_   _ _ __ ___
+           | |_) / _ \ __| |/ __| | | | | | | | '_ ` _ \
+           |  _ <  __/ |_| | (__| |_| | | |_| | | | | | |
+           |_| \_\___|\__|_|\___|\__,_|_|\__,_|_| |_| |_|
+          ```
+          **Job:** `audit-pins`
+          EOF
+
+  build-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet \
+            /opt/ghc /usr/local/share/powershell /usr/local/share/chromium
+          df -h /
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          load: true
+          tags: reticulum-party-line:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run --rm --entrypoint bash reticulum-party-line:ci -c '
+            set -e
+            python3 -c "import RNS; print(RNS)"
+            command -v socat
+            command -v openssl
+            echo "smoke-ok"
+          '
+
+      - name: Job summary
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ```
+            ____            _         _ _
+           |  _ \ __ _ _ __| |_ _   _| (_)_ __   ___
+           | |_) / _` | '__| __| | | | | | '_ \ / _ \
+           |  __/ (_| | |  | |_| |_| | | | | | |  __/
+           |_|   \__,_|_|   \__|\__, |_|_|_| |_|\___|
+                                 |___/
+            ____      _   _            _
+           |  _ \ ___| |_(_) ___ _   _| |_   _ _ __ ___
+           | |_) / _ \ __| |/ __| | | | | | | | '_ ` _ \
+           |  _ <  __/ |_| | (__| |_| | | |_| | | | | | |
+           |_| \_\___|\__|_|\___|\__,_|_|\__,_|_| |_| |_|
+          ```
+          **Job:** `build-and-smoke`
+          EOF

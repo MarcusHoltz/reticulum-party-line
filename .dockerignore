@@ -1,45 +1,51 @@
-# ─── Version control ──────────────────────────────────────────────────────────
+# ---- Version control ----
 .git/
 .gitignore
 .gitattributes
 
-# ─── Editor / IDE ─────────────────────────────────────────────────────────────
+# ---- Editor / IDE ----
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# ─── Docker / compose files (not needed inside the image) ────────────────────
+# ---- CI/CD (not needed inside the image) ----
+.github/
+.gitlab-ci.yml
+docker/hooks/
+
+# ---- Docker / compose files (not needed inside the image) ----
 docker-compose.yml
 docker-compose.override.yml
 docker-compose*.yml
 .env.example
 
-# ─── Secrets — never sent to Docker build context ─────────────────────────────
+# ---- Secrets: never sent to Docker build context ----
 secrets/
 .env
 .env.*
 *.env
 
-# ─── Project runtime data (created at container run time, not build time) ──────
-data/
-# Script-mode runtime dir: Tor hidden-service keys, shared_secret, torrc, pids.
-.torpartyline/
+# ---- Scratch bridge extract (runtime only, not source) ----
+rns_bridge.py
 
-# ─── Docs / misc (not needed in image) ───────────────────────────────────────
+# ---- Project runtime data (created at container run time, not build time) ----
+data/
+
+# ---- Docs / misc (not needed in image) ----
 README*
+README-hub.md
 LICENSE
 *.md
 
-# ─── OS artifacts ─────────────────────────────────────────────────────────────
+# ---- OS artifacts ----
 .DS_Store
 Thumbs.db
 
-# ─── AI / LLM tool directories ───────────────────────────────────────────────
+# ---- AI / LLM tool directories ----
 .claude/
 .openai/
-.github/copilot/
 .copilot/
 .cursor/
 .cursorignore
@@ -68,7 +74,13 @@ replit.nix
 .coderabbit/
 .coderabbit.yaml
 
-# ─── Temp / logs ─────────────────────────────────────────────────────────────
+# ---- Measurement / tooling (dev-only) ----
+measure/
+tools/
+chat.txt
+PLAN.md
+
+# ---- Temp / logs ----
 *.tmp
 *.temp
 tmp/

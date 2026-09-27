@@ -1,0 +1,317 @@
+# =========================================================================
+# GitLab CI/CD Pipeline
+# =========================================================================
+#
+# QUICK START
+#   Everything runs only when you click CI/CD > Pipelines > "New
+#   pipeline" and pick a WORKFLOW from the dropdown. This mirrors
+#   GitHub's three separate workflow buttons:
+#
+#     Test & Audit   (default)   builds the Docker image, runs a smoke
+#                                test, and audits Dockerfile pins
+#     Build & Publish             tests + builds, then press play
+#                                on push-registries; needs
+#                                RELEASE_VERSION (e.g. 1.0.0)
+#     Update Pins                checks for newer base images and pip
+#                                versions, pushes a branch if changed
+#
+#   Dockerfile merge requests additionally auto-run the Test & Audit
+#   jobs, like GitHub ci.yml's pull_request: paths filter.
+#   Nothing ever runs on a plain push.
+#
+# -------------------------------------------------------------------------
+# STAGES
+# -------------------------------------------------------------------------
+#
+#   test      Runs for manual "test"/"release" runs and Dockerfile
+#             MRs. Builds the Docker image, runs a smoke test
+#             verifying key dependencies (RNS, socat, openssl),
+#             and audits Dockerfile pins and pip version pins.
+#
+#   release   Only for the Build & Publish workflow. Play the
+#             push-registries button to build and push images.
+#             Requires RELEASE_VERSION (e.g. "1.0.0", no "v").
+#
+#   update    Only for the Update Pins workflow. Runs
+#             update-pins.sh to check for newer base images and
+#             pip versions, then pushes a branch if anything changed.
+#
+# -------------------------------------------------------------------------
+# REGISTRIES
+# -------------------------------------------------------------------------
+#
+# GitLab Container Registry
+#   Enabled by default. No setup needed.
+#   Authenticates automatically via CI_REGISTRY_* variables (built
+#   in to every GitLab project, including forks).
+#   Images land at: registry.gitlab.com/<namespace>/<project>
+#
+# Docker Hub
+#   Optional. Set PUSH_DOCKERHUB to "false" to skip.
+#   Requires two CI/CD variables:
+#     Settings > CI/CD > Variables > Add variable
+#
+#     DOCKERHUB_USERNAME   your Docker Hub username
+#     DOCKERHUB_TOKEN      a Personal Access Token (NOT your password)
+#                          Create one: hub.docker.com > Account Settings >
+#                          Security > Access Tokens
+#
+#   Images land at: <DOCKERHUB_USERNAME>/reticulum-party-line
+#   If DOCKERHUB_USERNAME is not set, falls back to the GitLab
+#   project namespace ($CI_PROJECT_NAMESPACE).
+#
+# GitHub Container Registry
+#   NOT handled here. Use .github/workflows/release.yml for GHCR.
+#   Each CI platform pushes only to its own native registry.
+#
+# -------------------------------------------------------------------------
+# SELF-HOSTED REGISTRY
+# -------------------------------------------------------------------------
+# Uncomment the marked sections below to add a private registry.
+# Set these as CI/CD variables:
+#   SELFHOSTED_USERNAME    registry login
+#   SELFHOSTED_TOKEN       registry password or token
+#   SELFHOSTED_REGISTRY    registry URL (e.g. registry.example.com)
+#   PUSH_SELFHOSTED        "true" to enable
+#
+# -------------------------------------------------------------------------
+# FOR FORKS / NEW USERS
+# -------------------------------------------------------------------------
+# 1. Click "New pipeline": the Test & Audit workflow is the default
+#    and needs no secrets.
+# 2. GitLab CR works immediately on any GitLab project.
+# 3. Release: add DOCKERHUB_USERNAME and DOCKERHUB_TOKEN as CI/CD
+#    variables, then pick "Build & Publish" and set RELEASE_VERSION.
+#
+# =========================================================================
+
+# ---------------------------------------------------------------------------
+# Workflow rules
+# ---------------------------------------------------------------------------
+# A pipeline is created only when:
+#   - someone clicks CI/CD > Pipelines > "Run pipeline" (source "web")
+#     or starts one via the Pipelines API (source "api"), or
+#   - a merge request is opened or updated (source
+#     "merge_request_event"). Which MRs actually get jobs is decided
+#     per job by `rules:changes` (Dockerfile only), mirroring
+#     GitHub ci.yml's `pull_request: paths:` trigger.
+# Pushes, tags and schedules never create a pipeline, so repo
+# creation, forks and ordinary commits burn no CI minutes.
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - when: never
+
+stages:
+  - test
+  - release
+  - update
+
+variables:
+  DOCKER_BUILDKIT: "1"
+  IMAGE_NAME: reticulum-party-line
+  GL_IMAGE: "${CI_REGISTRY_IMAGE}"
+  # Registry toggles. Override per-pipeline or as CI/CD variables.
+  PUSH_DOCKERHUB: "true"
+  PUSH_GITLAB: "true"
+  # -------------------------------------------------------------------
+  # Run-pipeline form fields (shown on the "New pipeline" page).
+  # The WORKFLOW dropdown picks which GitHub-style workflow to run.
+  # -------------------------------------------------------------------
+  WORKFLOW:
+    value: test
+    description: |
+      Pick one:
+        test    - build the image, run smoke tests (no secrets needed)
+        release - test first, then click play on push-registries
+                  (set RELEASE_VERSION below, e.g. 1.0.0)
+        update  - check for newer base images and open an MR
+    options:
+      - test
+      - release
+      - update
+  RELEASE_VERSION:
+    value: ""
+    description: |
+      Version to publish for the Build & Publish workflow,
+      e.g. 1.0.0 (no "v" prefix). Ignored for other workflows.
+
+# ---------------------------------------------------------------------------
+# Test stage
+# ---------------------------------------------------------------------------
+
+audit-pins:
+  stage: test
+  image: alpine:3.21
+  before_script:
+    - apk add --no-cache curl jq
+  script:
+    - ./docker/hooks/audit-pins.sh
+  timeout: 10 minutes
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "web" && $WORKFLOW != "update"'
+    - if: '$CI_PIPELINE_SOURCE == "api" && $WORKFLOW != "update"'
+    - when: never
+
+build-and-smoke:
+  stage: test
+  image: docker:29.8.0
+  services:
+    - docker:29.8.0-dind
+  script:
+    - docker build -t "${IMAGE_NAME}:ci" .
+    - docker run --rm --entrypoint bash "${IMAGE_NAME}:ci" -c '
+        set -e
+        python3 -c "import RNS; print(RNS)"
+        command -v socat
+        command -v openssl
+        echo "smoke-ok"
+      '
+  timeout: 30 minutes
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - Dockerfile
+    - if: '$CI_PIPELINE_SOURCE == "web" && $WORKFLOW != "update"'
+    - if: '$CI_PIPELINE_SOURCE == "api" && $WORKFLOW != "update"'
+    - when: never
+
+# ---------------------------------------------------------------------------
+# Release stage: push to registries
+#
+# Trigger: run the pipeline with the "Build & Publish" workflow and
+# RELEASE_VERSION (e.g. 1.0.0, no "v"), then click the play button
+# on "push-registries". Images are rebuilt here because GitLab CI jobs
+# do not share a Docker daemon across stages.
+# ---------------------------------------------------------------------------
+
+push-registries:
+  stage: release
+  image: docker:29.8.0
+  services:
+    - docker:29.8.0-dind
+  timeout: 30 minutes
+  needs: [build-and-smoke, audit-pins]
+  rules:
+    - if: '$WORKFLOW == "release"'
+      when: manual
+    - when: never
+  before_script:
+    - |
+      if [ "$PUSH_GITLAB" = "true" ]; then
+        echo "$CI_REGISTRY_PASSWORD" |
+          docker login -u "$CI_REGISTRY_USER" \
+            --password-stdin "$CI_REGISTRY"
+      fi
+    - |
+      if [ "$PUSH_DOCKERHUB" = "true" ]; then
+        if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then
+          echo "WARNING: PUSH_DOCKERHUB is true but DOCKERHUB_USERNAME"
+          echo "         or DOCKERHUB_TOKEN is not set. Skipping Docker Hub."
+          echo "         Add them under Settings > CI/CD > Variables."
+        else
+          echo "$DOCKERHUB_TOKEN" |
+            docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+        fi
+      fi
+    # -- Self-hosted registry (uncomment when ready) -----------------------
+    # - |
+    #   if [ "$PUSH_SELFHOSTED" = "true" ]; then
+    #     if [ -z "${SELFHOSTED_REGISTRY:-}" ] || [ -z "${SELFHOSTED_TOKEN:-}" ]; then
+    #       echo "WARNING: PUSH_SELFHOSTED is true but credentials not set."
+    #     else
+    #       echo "$SELFHOSTED_TOKEN" |
+    #         docker login -u "$SELFHOSTED_USERNAME" \
+    #           --password-stdin "$SELFHOSTED_REGISTRY"
+    #     fi
+    #   fi
+  script:
+    - |
+      if [ -z "${RELEASE_VERSION:-}" ]; then
+        echo "ERROR: Set RELEASE_VERSION when running this pipeline"
+        echo "       (e.g. 1.0.0, no v prefix)"
+        exit 1
+      fi
+
+    # Docker Hub namespace: use DOCKERHUB_USERNAME if set,
+    # otherwise fall back to the GitLab project namespace.
+    - DH_NS="${DOCKERHUB_USERNAME:-$CI_PROJECT_NAMESPACE}"
+    - DH_IMAGE="${DH_NS}/reticulum-party-line"
+
+    - docker build
+        -t "${GL_IMAGE}:latest"
+        -t "${GL_IMAGE}:${RELEASE_VERSION}"
+        -t "${DH_IMAGE}:latest"
+        -t "${DH_IMAGE}:${RELEASE_VERSION}" .
+
+    - |
+      if [ "$PUSH_GITLAB" = "true" ]; then
+        docker push "${GL_IMAGE}:latest"
+        docker push "${GL_IMAGE}:${RELEASE_VERSION}"
+      fi
+    - |
+      if [ "$PUSH_DOCKERHUB" = "true" ] \
+         && [ -n "${DOCKERHUB_USERNAME:-}" ] \
+         && [ -n "${DOCKERHUB_TOKEN:-}" ]; then
+        docker push "${DH_IMAGE}:latest"
+        docker push "${DH_IMAGE}:${RELEASE_VERSION}"
+      fi
+
+    # -- Self-hosted registry (uncomment when ready) -----------------------
+    # - |
+    #   if [ "$PUSH_SELFHOSTED" = "true" ] \
+    #      && [ -n "${SELFHOSTED_REGISTRY:-}" ]; then
+    #     docker tag "${GL_IMAGE}:latest" \
+    #       "${SELFHOSTED_REGISTRY}/${IMAGE_NAME}:latest"
+    #     docker tag "${GL_IMAGE}:${RELEASE_VERSION}" \
+    #       "${SELFHOSTED_REGISTRY}/${IMAGE_NAME}:${RELEASE_VERSION}"
+    #     docker push "${SELFHOSTED_REGISTRY}/${IMAGE_NAME}:latest"
+    #     docker push "${SELFHOSTED_REGISTRY}/${IMAGE_NAME}:${RELEASE_VERSION}"
+    #   fi
+
+# ---------------------------------------------------------------------------
+# Update stage: update Dockerfile pins with cooldown
+#
+# Pick "Update Pins" in the WORKFLOW dropdown. If pins changed,
+# pushes a branch and prints the MR URL.
+#
+# Requires CI_JOB_TOKEN to have push access. Enable at:
+#   Settings > CI/CD > Token Access > allow CI job tokens to push
+# ---------------------------------------------------------------------------
+
+update-pins:
+  stage: update
+  image: alpine:3.21
+  before_script:
+    - apk add --no-cache curl jq git
+  script:
+    - ./docker/hooks/update-pins.sh
+    - |
+      if git diff --quiet; then
+        echo "No updates needed."
+        exit 0
+      fi
+      branch="update-dockerfile-pins"
+      git config user.name "GitLab CI"
+      git config user.email "ci@${CI_SERVER_HOST}"
+      git checkout -B "$branch"
+      git add Dockerfile
+      git commit -m "chore: update Dockerfile pins
+
+      Automated by docker/hooks/update-pins.sh via GitLab CI."
+      git push --force \
+        "https://gitlab-ci-token:${CI_JOB_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git" \
+        "$branch"
+      echo ""
+      echo "Branch pushed: $branch"
+      echo "Create MR: ${CI_SERVER_URL}/${CI_PROJECT_PATH}/-/merge_requests/new?merge_request%5Bsource_branch%5D=$branch"
+  timeout: 15 minutes
+  rules:
+    - if: '$WORKFLOW == "update"'
+    - when: never

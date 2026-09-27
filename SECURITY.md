@@ -7,8 +7,8 @@ Older versions are unsupported, so please update before reporting.
 
 | Version | Supported |
 |---------|-----------|
-| latest (`main`) | ✅ |
-| older tags | ❌ |
+| latest (`main`) | Yes |
+| older tags | No |
 
 ---
 
@@ -18,15 +18,15 @@ Older versions are unsupported, so please update before reporting.
 
 This project's canonical home is **GitLab**; the GitHub repository is a read-only mirror. Either private channel below reaches the maintainer. GitLab is preferred since that is where fixes are developed and released.
 
-- **GitLab (preferred):** open a [confidential issue](https://gitlab.com/marcusholtz/tor-party-line/-/issues/new) and tick the **"This issue is confidential"** box so it stays visible only to project members, or contact the maintainer via [gitlab.com/marcusholtz](https://gitlab.com/marcusholtz).
+- **GitLab (preferred):** open a [confidential issue](https://gitlab.com/marcusholtz/reticulum-party-line/-/issues/new) and tick the **"This issue is confidential"** box so it stays visible only to project members, or contact the maintainer via [gitlab.com/marcusholtz](https://gitlab.com/marcusholtz).
 
-Use the subject line `[tor-party-line] Security`.
+Use the subject line `[reticulum-party-line] Security`.
 
 Please include:
 
 1. A clear description of the vulnerability and its potential impact
 2. Steps to reproduce or a minimal proof-of-concept
-3. Which component is affected (`partyline.sh`, `entrypoint.sh`, `Dockerfile`, etc.)
+3. Which component is affected (`rns-party-line.sh`, `rns_bridge.py`, `Dockerfile`, etc.)
 4. Your suggested severity (Critical / High / Medium / Low)
 
 You will receive an acknowledgement within **72 hours** and a resolution timeline within **7 days**.
@@ -46,16 +46,16 @@ Security issues that exist in the upstream codebase should be reported there as 
 Reports are welcome for issues in this codebase. Common areas of concern:
 
 - Cryptographic weaknesses (cipher choices, key derivation, HMAC implementation)
-- Shared-secret or `.onion` private-key exposure (files, logs, environment variables, `docker inspect`)
-- Command injection or shell escaping bugs in `partyline.sh`
-- Tor anonymity leaks (traffic routed outside the SOCKS proxy, DNS leaks, IP disclosure)
+- Shared-secret or Reticulum identity key exposure (files, logs, environment variables, `docker inspect`)
+- Command injection or shell escaping bugs in `rns-party-line.sh` or `rns_bridge.py`
+- Reticulum address leaks (identity disclosed outside intended transport)
 - Docker container escape or privilege escalation via the bind mounts or `security_opt` settings
 - Insecure defaults that silently degrade the security model
 
 ### Out of scope
 
-- Tor network-level attacks: report those to the [Tor Project](https://gitlab.torproject.org/tpo/core/tor/-/blob/main/doc/HACKING/CodingStandards.md#reporting-security-issues)
-- Issues in third-party dependencies (`tor`, `openssl`, `socat`, `opusenc`): report those upstream
+- Reticulum network-level attacks: report those to the [Reticulum project](https://github.com/markqvist/Reticulum)
+- Issues in third-party dependencies (`rns`, `lxmf`, `openssl`, `socat`, `opusenc`): report those upstream
 - Social-engineering attacks against users
 - Theoretical attacks requiring physical access to an already-compromised host
 
@@ -63,12 +63,12 @@ Reports are welcome for issues in this codebase. Common areas of concern:
 
 ## Known Limitations
 
-The [security model](README.md#-reference) section of the README documents intentional trade-offs that are **not bugs**:
+The [security model](README.md) section of the README documents intentional trade-offs that are **not bugs**:
 
 - **No forward secrecy:** compromise of the shared secret exposes all past calls made with it. Rotate secrets between sensitive conversations.
-- **No AEAD:** `openssl enc` cannot stream AEAD ciphers, so AES-256-CBC with PBKDF2 (100k iterations) is used instead.
+- **No AEAD:** `openssl enc` cannot stream AEAD ciphers, so AES-256-CBC with PBKDF2 (10k iterations) is used instead.
 - **Overwrite-on-delete is ineffective on SSDs:** wear-leveling defeats file-level overwriting; use full-disk encryption (LUKS / FileVault).
-- **Single-hop mode** reduces anonymity in exchange for speed and is off by default.
+- **An unsigned `RELAY:` greeting can suppress a real HANGUP.** The relay's own greeting can't be HMAC-signed (it holds no shared secret), so a call peer can send a bare `RELAY:1` on a direct connection and make your client ignore that peer's subsequent HANGUP until `CLIENT_TIMEOUT` (180s default). This is a nuisance from the peer you are already directly connected to, not a third party, and not a confidentiality or integrity break.
 
 Please do not report these as vulnerabilities.
 

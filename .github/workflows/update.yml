@@ -1,0 +1,52 @@
+name: Update Pins
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Update Dockerfile pins
+        run: ./docker/hooks/update-pins.sh
+
+      - name: Create PR if changed
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet; then
+            echo "No updates needed."
+            exit 0
+          fi
+
+          branch="update-dockerfile-pins"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Reuse existing branch or create new
+          git checkout -B "$branch"
+          git add Dockerfile
+          git commit -m "chore: update Dockerfile pins
+
+          Automated by docker/hooks/update-pins.sh via GitHub Actions."
+          git push --force-with-lease -u origin "$branch"
+
+          # Create PR if one does not already exist for this branch
+          existing=$(gh pr list --head "$branch" --json number --jq '.[0].number // empty' 2>/dev/null || true)
+          if [ -n "$existing" ]; then
+            echo "Updated existing PR #$existing"
+          else
+            gh pr create \
+              --title "chore: update Dockerfile pins" \
+              --body "Automated by docker/hooks/update-pins.sh.
+
+          Review the diff for details on what was updated.
+          The update script applies a ${MIN_AGE_DAYS:-7}-day hold on newly published images and packages."
+          fi

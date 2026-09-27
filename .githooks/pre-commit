@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Keep broken scripts, drifted bridge copies, and secrets out of commits.
+#
+# rns-party-line.sh is the whole project: a syntax error committed here is a fully
+# broken checkout for whoever pulls it. This hook checks the STAGED content,
+# not the working tree, because it is possible to test one version and commit
+# another. .gitignore can be bypassed with git add -f, so the hook enforces
+# the same rules as a second line of defense.
+#
+# Enable (once per clone):  git config core.hooksPath .githooks
+# Bypass in an emergency:   git commit --no-verify
+set -uo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root" || exit 1
+fail=0
+
+note() { printf '\033[0;31mpre-commit:\033[0m %s\n' "$1" >&2; }
+
+staged_files="$(git diff --cached --name-only)"
+
+# ── Dangerous files ───────────────────────────────────────────────
+# rns_bridge.py: checked via git ls-files, not git diff. If it was previously
+# committed, git add -f re-registers it as unchanged and it appears in no
+# diff, sailing through a diff-based check.
+if git ls-files --cached --error-unmatch rns_bridge.py >/dev/null 2>&1; then
+    note "rns_bridge.py is in the index. It is a scratch extract, not source."
+    note "  git rm --cached rns_bridge.py"
+    fail=1
+fi
+
+if git ls-files --cached --error-unmatch secrets/shared_secret.txt >/dev/null 2>&1; then
+    note "secrets/shared_secret.txt is in the index."
+    note "  git rm --cached secrets/shared_secret.txt"
+    fail=1
+fi
+
+while IFS= read -r f; do
+    [[ -z "$f" ]] && continue
+    case "$f" in
+        secrets/.gitkeep|data/.gitkeep|.env.example)
+            ;;
+        secrets/*)
+            note "$f belongs in secrets/. Never commit it."
+            note "  git rm --cached '$f'"
+            fail=1
+            ;;
+        .env|.env.*|*.env)
+            note "$f is an environment file. Never commit it."
+            note "  git rm --cached '$f'"
+            fail=1
+            ;;
+        data/*)
+            note "$f is runtime data. Never commit it."
+            note "  git rm --cached '$f'"
+            fail=1
+            ;;
+    esac
+done <<< "$staged_files"
+
+# ── Script syntax ─────────────────────────────────────────────────
+scripts_to_check=""
+for s in rns-party-line.sh docker-entrypoint.sh; do
+    grep -qx "$s" <<< "$staged_files" && scripts_to_check="$scripts_to_check $s"
+done
+
+if [ -n "$scripts_to_check" ]; then
+    tmpdir="$(mktemp -d)"
+    trap 'rm -rf "$tmpdir"' EXIT
+
+    for script in $scripts_to_check; do
+        if ! git show ":$script" > "$tmpdir/$script" 2>/dev/null; then
+            note "could not read staged $script"
+            fail=1
+            continue
+        fi
+        if ! bash -n "$tmpdir/$script" 2>/dev/null; then
+            note "staged $script is not valid bash:"
+            bash -n "$tmpdir/$script" 2>&1 | sed 's/^/  /' >&2
+            fail=1
+        fi
+    done
+fi
+
+# ── Embedded bridge consistency ───────────────────────────────────
+if grep -qx 'rns-party-line.sh' <<< "$staged_files" && [ -f tools/embed_bridge.py ]; then
+    staged_sh="${tmpdir:-}/rns-party-line.sh"
+    if [ -f "$staged_sh" ]; then
+        if ! out="$(python3 tools/embed_bridge.py --check --sh "$staged_sh" 2>&1)"; then
+            note "embedded bridge is stale or broken:"
+            printf '%s\n' "$out" | sed 's/^/  /' >&2
+            note "  fix with: tools/embed_bridge.py --embed && git add rns-party-line.sh"
+            fail=1
+        fi
+    fi
+fi
+
+# ── Result ────────────────────────────────────────────────────────
+[ $fail -eq 0 ] || note "commit blocked. Use --no-verify to override."
+exit $fail

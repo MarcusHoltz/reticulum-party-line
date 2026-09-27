@@ -1,40 +1,11 @@
-# ─── Project runtime data ─────────────────────────────────────────────────────
-# All persistent data lives here. data/script/ = Host OS, data/docker/ = Docker.
-data/
-# Script-mode runtime dir: Tor hidden-service keys, shared_secret, torrc, pids.
-.torpartyline/
+/data/
+/secrets/
+__pycache__/
+*.pyc
 
-# ─── Secrets & environment ────────────────────────────────────────────────────
-secrets/*
-# keep the dir on clone so Docker's bind mount has a host path; ignore everything inside (incl. the real secret)
-!secrets/.gitkeep
-.env
-.env.*
-# keep the committed template; .env.* above would swallow it without this exception
-!.env.example
-*.env
-.env.local
-.env.production
-
-# ─── Version control ──────────────────────────────────────────────────────────
-.git/
-.gitattributes
-
-# ─── Editor / IDE ─────────────────────────────────────────────────────────────
-.vscode/
-!.vscode/extensions.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.swp
-*.swo
-*~
-
-# ─── OS artifacts ─────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
+# rns_bridge.py is a scratch extract of the heredoc in rns-party-line.sh.
+# rns-party-line.sh is the source of truth; regenerate with tools/embed_bridge.py
+rns_bridge.py
 
 # ─── AI / LLM tool directories ───────────────────────────────────────────────
 # Anthropic / Claude
@@ -108,9 +79,3 @@ replit.nix
 # CodeRabbit
 .coderabbit/
 .coderabbit.yaml
-
-# ─── Temp / build artifacts ───────────────────────────────────────────────────
-*.tmp
-*.temp
-tmp/
-*.log
