@@ -27,11 +27,10 @@ BASE_DIR="$(cd "$(dirname "$0")" && pwd -P)"
 
 # ─── Docker mode detection ────────────────────────────────────────────────────
 # MUST come before path assignments so all derived paths use the correct DATA_DIR.
-# When /.dockerenv exists, docker-entrypoint.sh has already set up the
-# environment — skip dep install, use container-local paths.
+# DOCKER_MODE=1 is set by the docker Dockerfile (ENV). When active,
+# docker-entrypoint.sh has already set up the environment.
 # When DOCKER_MODE=0 (script mode), full original behavior on any platform.
-DOCKER_MODE=0
-[ -f /.dockerenv ] && DOCKER_MODE=1
+DOCKER_MODE="${DOCKER_MODE:-0}"
 
 if [ $DOCKER_MODE -eq 1 ]; then
     DATA_DIR="${DATA_DIR:-/app/data}"                      # PLAN §20.6 persistent
@@ -361,6 +360,11 @@ overwrite_rm() {
 }
 
 cleanup() {
+    # Capture the exit status before any command clobbers it. `set -e` aborts
+    # on the first failed command, then this trap still runs — so without this
+    # the failure is reported to the user as a successful shutdown.
+    local _exit_status=$?
+
     # Restore terminal
     if [ -n "$ORIGINAL_STTY" ]; then
         stty "$ORIGINAL_STTY" 2>/dev/null || true
@@ -380,7 +384,11 @@ cleanup() {
         overwrite_rm -r "$AUDIO_DIR"
     fi
 
-    echo -e "\n${GREEN}${APP_NAME} shut down cleanly.${NC}"
+    if [ "$_exit_status" -eq 0 ]; then
+        echo -e "\n${GREEN}${APP_NAME} shut down cleanly.${NC}"
+    else
+        echo -e "\n${RED}${APP_NAME} exited with error (status $_exit_status).${NC}"
+    fi
 }
 
 kill_bg_processes() {

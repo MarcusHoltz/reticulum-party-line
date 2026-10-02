@@ -1,0 +1,76 @@
+# Reticulum Party Line - Distrobox-ready image
+#
+# Built for use with distrobox, not docker compose. No DOCKER_MODE: the script
+# runs in script mode. A wrapper at /usr/local/bin sets DATA_DIR to an XDG path
+# on the host filesystem (distrobox bind-mounts $HOME), then execs the script.
+#
+# Build:  podman build -f Dockerfile.distrobox -t docker.io/marcusholtz/reticulum-party-line-box .
+# Use:    distrobox assemble create --file distrobox.ini
+#         distrobox enter partyline-rns
+#         rns-party-line.sh
+
+# -- Stage 1: pip install + pcm_rms ----------------------------------
+FROM python:3.12-slim AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir rns==1.4.2 lxmf==1.1.1
+RUN printf '%s\n' \
+    '#include <stdio.h>' \
+    '#include <math.h>' \
+    '#include <stdint.h>' \
+    'int main(void) {' \
+    '    int16_t buf[4096];' \
+    '    double sum = 0.0;' \
+    '    long count = 0;' \
+    '    size_t n;' \
+    '    while ((n = fread(buf, sizeof(int16_t), 4096, stdin)) > 0) {' \
+    '        for (size_t i = 0; i < n; i++) {' \
+    '            double s = (double)buf[i];' \
+    '            sum += s * s;' \
+    '        }' \
+    '        count += n;' \
+    '    }' \
+    '    if (count == 0) { printf("-91.0\n"); return 0; }' \
+    '    double rms = sqrt(sum / count);' \
+    '    double dbfs = 20.0 * log10(rms / 32768.0);' \
+    '    printf("%.1f\n", dbfs);' \
+    '    return 0;' \
+    '}' > /tmp/pcm_rms.c \
+    && gcc -O2 -o /tmp/pcm_rms /tmp/pcm_rms.c -lm
+
+# -- Stage 2: runtime ------------------------------------------------
+FROM python:3.12-slim
+
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        socat \
+        opus-tools \
+        openssl \
+        ffmpeg \
+        alsa-utils \
+        pulseaudio \
+        pulseaudio-utils \
+        procps \
+        coreutils \
+        util-linux \
+        sudo \
+        passwd \
+        ca-certificates \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
+COPY --from=builder /usr/local/bin/ /usr/local/bin/
+COPY --from=builder /tmp/pcm_rms /usr/local/bin/pcm_rms
+
+RUN mkdir -p /usr/local/lib/partyline
+COPY rns-party-line.sh /usr/local/lib/partyline/rns-party-line.sh
+RUN chmod +x /usr/local/lib/partyline/rns-party-line.sh
+
+RUN printf '#!/bin/bash\nexport DATA_DIR="${DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/reticulum-party-line}"\nexec /usr/local/lib/partyline/rns-party-line.sh "$@"\n' \
+    > /usr/local/bin/rns-party-line.sh \
+    && chmod +x /usr/local/bin/rns-party-line.sh

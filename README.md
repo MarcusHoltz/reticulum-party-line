@@ -99,6 +99,80 @@ if no host sound server is reachable, then drops privileges via
 
 ---
 
+### Immutable distros (Bazzite, Silverblue, SteamOS, etc.)
+
+If you're on an immutable or atomic Linux distro, use
+[Distrobox](https://distrobox.it/) instead of Docker. Your mic,
+speakers, and network are shared with the container automatically.
+
+```bash
+distrobox create --image debian:trixie --name partyline-rns
+distrobox enter partyline-rns
+```
+
+Once inside, grab the script and run it. First run installs
+dependencies (one-time, takes ~1 min):
+
+```bash
+curl -LO https://gitlab.com/MarcusHoltz/reticulum-party-line/-/raw/main/rns-party-line.sh
+chmod +x rns-party-line.sh && ./rns-party-line.sh
+```
+
+A ready-to-go image with everything pre-installed is also available
+from Docker Hub, GHCR, or GitLab CR:
+
+```bash
+# Docker Hub
+distrobox create --image marcusholtz/reticulum-party-line-box:latest --name partyline-rns
+
+# GitHub Container Registry
+distrobox create --image ghcr.io/marcusholtz/reticulum-party-line-box:latest --name partyline-rns
+
+# GitLab Container Registry
+distrobox create --image registry.gitlab.com/marcusholtz/reticulum-party-line/box:latest --name partyline-rns
+```
+
+Then enter and run:
+
+```bash
+distrobox enter partyline-rns
+rns-party-line.sh
+```
+
+> A `distrobox.ini` file is included in the repo for one-command
+> setup: `distrobox assemble create --file distrobox.ini`
+
+#### Where distrobox keeps your data
+
+The distrobox image stores persistent state in the XDG data directory on
+your **host** filesystem, following the same convention as Universal Blue
+images:
+
+```
+~/.local/share/reticulum-party-line/
+├── config          saved options
+├── shared_secret   pre-shared secret (chmod 600)
+├── identity        RNS identity file (64 bytes; the crypto signature)
+└── destination     your destination address
+```
+
+Ephemeral data (audio, FIFOs, `run/`, `pids/`, RNS storage, the bridge)
+goes to `RUNTIME_DIR`, a tmpfs at `/dev/shm/partyline-$$` by default, and
+never touches disk.
+
+Distrobox bind-mounts your home, so this path is a real directory on your
+disk, not a container layer. Your identity survives `distrobox rm` and
+container replacement, and travels with your home directory if you move it
+to another machine. Back up `identity` — losing it means a new
+destination. Override the location with `DATA_DIR`:
+
+```bash
+DATA_DIR=/mnt/secure/reticulum-party-line rns-party-line.sh
+```
+
+
+---
+
 ### On first run
 
 1. 📡 Your Reticulum destination hash is generated and displayed
@@ -291,7 +365,7 @@ The transport itself is configured through environment variables — usually via
 | `RNS_LISTEN_HOST` | `0.0.0.0` | Bind IP for the reflector's TCPServerInterface |
 | `RNS_IDENTITY_FILE` | `$DATA_DIR/identity` | Persistent identity (64 bytes; the crypto signature) |
 | `RUNTIME_DIR` | `/dev/shm/partyline-$$` | Ephemeral tmpfs for audio, FIFOs, RNS storage |
-| `DATA_DIR` | `/app/data` (Docker) | Persistent: shared secret, config, identity, address |
+| `DATA_DIR` | `/app/data` (Docker), `$XDG_DATA_HOME/reticulum-party-line` (distrobox) | Persistent: shared secret, config, identity, address |
 
 ---
 
@@ -681,7 +755,7 @@ Settings precedence (lowest → highest): **built-in defaults → `.env`** (Dock
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `DATA_DIR` | `/app/data` (Docker) or `./data/script` (host) | Persistent: `shared_secret`, `config`, `identity`, `destination` |
+| `DATA_DIR` | `/app/data` (Docker), `$XDG_DATA_HOME/reticulum-party-line` (distrobox), `./data/script` (host) | Persistent: `shared_secret`, `config`, `identity`, `destination` |
 | `RUNTIME_DIR` | `/dev/shm/partyline-$$` | Ephemeral tmpfs: `audio/`, `run/`, `pids/`, RNS `storage/`, emitted `rns_bridge.py` |
 
 Everything under `RUNTIME_DIR` is wiped on process exit. Only the four small files under `DATA_DIR` survive a reboot.

@@ -36,6 +36,7 @@ on:
   pull_request:
     paths:
       - 'Dockerfile'
+      - 'Dockerfile.distrobox'
 
 jobs:
   audit-pins:
@@ -97,6 +98,28 @@ jobs:
             command -v socat
             command -v openssl
             echo "smoke-ok"
+          '
+
+      - name: Build box image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.distrobox
+          load: true
+          tags: reticulum-party-line-box:ci
+          cache-from: type=gha,scope=box
+          cache-to: type=gha,mode=max,scope=box
+
+      - name: Box smoke test
+        run: |
+          docker run --rm reticulum-party-line-box:ci bash -c '
+            set -e
+            command -v rns-party-line.sh
+            python3 -c "import RNS; print(RNS)"
+            command -v socat
+            command -v openssl
+            command -v pcm_rms
+            echo "box-smoke-ok"
           '
 
       - name: Job summary

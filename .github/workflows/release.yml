@@ -19,6 +19,7 @@
 #   Enabled by default. No setup needed.
 #   Authenticates automatically via GITHUB_TOKEN.
 #   Images land at: ghcr.io/<your-github-username>/reticulum-party-line
+#   Distrobox image: ghcr.io/<your-github-username>/reticulum-party-line-box
 #
 # Docker Hub
 #   Optional. Requires two repository secrets:
@@ -28,6 +29,9 @@
 #     DOCKERHUB_TOKEN      a Personal Access Token (NOT your password)
 #                          Create one: hub.docker.com > Account Settings >
 #                          Security > Access Tokens
+#
+#   Images land at: <DOCKERHUB_USERNAME>/reticulum-party-line
+#   Distrobox image: <DOCKERHUB_USERNAME>/reticulum-party-line-box
 #
 # GitLab Container Registry
 #   NOT handled here. Use .gitlab-ci.yml for GitLab CR pushes.
@@ -142,6 +146,28 @@ jobs:
             echo "smoke-ok"
           '
 
+      - name: Build box image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.distrobox
+          load: true
+          tags: reticulum-party-line-box:ci
+          cache-from: type=gha,scope=box
+          cache-to: type=gha,mode=max,scope=box
+
+      - name: Box smoke test
+        run: |
+          docker run --rm reticulum-party-line-box:ci bash -c '
+            set -e
+            command -v rns-party-line.sh
+            python3 -c "import RNS; print(RNS)"
+            command -v socat
+            command -v openssl
+            command -v pcm_rms
+            echo "box-smoke-ok"
+          '
+
       - name: Job summary
         run: |
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
@@ -249,6 +275,49 @@ jobs:
           tags: ${{ steps.tags.outputs.tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Assemble box tags
+        id: box-tags
+        env:
+          VERSION: ${{ inputs.version }}
+          PUSH_DH: ${{ inputs.push_dockerhub }}
+          PUSH_GHCR: ${{ inputs.push_ghcr }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          BOX_NAME="${IMAGE_NAME}-box"
+          DH_NS=$(echo "$DH_NS" | tr '[:upper:]' '[:lower:]')
+          GHCR_NS=$(echo "$GHCR_NS" | tr '[:upper:]' '[:lower:]')
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: building ${BOX_NAME} without pushing"
+            echo "tags=${BOX_NAME}:${VERSION}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          TAGS=""
+          if [ "$PUSH_DH" = "true" ]; then
+            TAGS="${TAGS}${DH_NS}/${BOX_NAME}:latest
+          ${DH_NS}/${BOX_NAME}:${VERSION}
+          "
+          fi
+          if [ "$PUSH_GHCR" = "true" ]; then
+            TAGS="${TAGS}${GHCR_NS}/${BOX_NAME}:latest
+          ${GHCR_NS}/${BOX_NAME}:${VERSION}
+          "
+          fi
+          {
+            echo "tags<<EOF"
+            echo "$TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build and push box image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.distrobox
+          push: ${{ !inputs.dry_run }}
+          tags: ${{ steps.box-tags.outputs.tags }}
+          cache-from: type=gha,scope=box
+          cache-to: type=gha,mode=max,scope=box
 
       - name: Job summary
         run: |

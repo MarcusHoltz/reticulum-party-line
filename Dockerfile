@@ -86,6 +86,7 @@ RUN chmod +x /app/src/rns-party-line.sh
 # destination). RUNTIME_DIR is a tmpfs mount from compose (see
 # docker-compose.yml). Both are re-set in compose; kept here as documentation
 # of the PLAN §20.6 split.
+ENV DOCKER_MODE=1
 ENV DATA_DIR=/app/data
 ENV RUNTIME_DIR=/dev/shm/partyline
 
